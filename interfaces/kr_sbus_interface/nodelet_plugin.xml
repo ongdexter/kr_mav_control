@@ -1,0 +1,7 @@
+<library path="lib/libkr_sbus_interface">
+  <class name="kr_sbus_interface/SO3CmdToSbus" type="SO3CmdToSbus" base_class_type="nodelet::Nodelet">
+    <description>
+      This take a so3_command and sends it to the robot using the SBUS Bridge
+    </description>
+  </class>
+</library>
