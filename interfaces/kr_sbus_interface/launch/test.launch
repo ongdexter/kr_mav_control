@@ -13,6 +13,9 @@
       output="screen">
       <remap from="~odom" to="$(arg odom)"/>
       <remap from="~so3_cmd" to="$(arg so3_cmd)"/>
+
+      <rosparam file="$(find kr_sbus_interface)/parameters/default.yaml"/>
+      <param name="port_name" value="/dev/ttyTHS0" />
     </node>
   </group>
 </launch>

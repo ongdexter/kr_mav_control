@@ -21,11 +21,11 @@ SBusBridge::SBusBridge(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
       bridge_armed_(false),
       rc_was_disarmed_once_(false),
       destructor_invoked_(false) {
-//   if (!loadParameters()) {
-//     ROS_ERROR("[%s] Could not load parameters.", pnh_.getNamespace().c_str());
-//     ros::shutdown();
-//     return;
-//   }
+  if (!loadParameters()) {
+    ROS_ERROR("[%s] Could not load parameters.", pnh_.getNamespace().c_str());
+    ros::shutdown();
+    return;
+  }
 
   if (disable_thrust_mapping_) {
     ROS_WARN("[%s] Thrust mapping disabled!", pnh_.getNamespace().c_str());
@@ -166,53 +166,53 @@ void SBusBridge::watchdogThread() {
 
 void SBusBridge::handleReceivedSbusMessage(const SBusMsg& received_sbus_msg)
 {
-//   {
-//     std::lock_guard<std::mutex> main_lock(main_mutex_);
+  {
+    std::lock_guard<std::mutex> main_lock(main_mutex_);
 
-//     time_last_rc_msg_received_ = ros::Time::now();
+    time_last_rc_msg_received_ = ros::Time::now();
 
-//     if (received_sbus_msg.isArmed()) {
-//       if (!rc_was_disarmed_once_) {
-//         // This flag prevents that the vehicle can be armed if the RC is armed
-//         // on startup of the bridge
-//         ROS_WARN_THROTTLE(
-//             1.0,
-//             "[%s] RC needs to be disarmed once before it can take over control",
-//             pnh_.getNamespace().c_str());
-//         return;
-//       }
+    if (received_sbus_msg.isArmed()) {
+      if (!rc_was_disarmed_once_) {
+        // This flag prevents that the vehicle can be armed if the RC is armed
+        // on startup of the bridge
+        ROS_WARN_THROTTLE(
+            1.0,
+            "[%s] RC needs to be disarmed once before it can take over control",
+            pnh_.getNamespace().c_str());
+        return;
+      }
 
-//       // Immediately go into RC_FLIGHT state since RC always has priority
-//       if (bridge_state_ != BridgeState::RC_FLIGHT) {
-//         setBridgeState(BridgeState::RC_FLIGHT);
-//         ROS_INFO("[%s] Control authority taken over by remote control.",
-//                  pnh_.getNamespace().c_str());
-//       }
-//       sendSBusMessageToSerialPort(received_sbus_msg);
-//       control_mode_ = received_sbus_msg.getControlMode();
-//     } else if (bridge_state_ == BridgeState::RC_FLIGHT) {
-//       // If the bridge was in state RC_FLIGHT and the RC is disarmed we set the
-//       // state to AUTONOMOUS_FLIGHT
-//       // In case there are valid control commands, the bridge will stay in
-//       // AUTONOMOUS_FLIGHT, otherwise the watchdog will set the state to OFF
-//       ROS_INFO("[%s] Control authority returned by remote control.",
-//                pnh_.getNamespace().c_str());
-//       if (bridge_armed_) {
-//         setBridgeState(BridgeState::AUTONOMOUS_FLIGHT);
-//       } else {
-//         // When switching the bridge state to off, our watchdog ensures that a
-//         // disarming off message is sent
-//         setBridgeState(BridgeState::OFF);
-//       }
-//     } else if (!rc_was_disarmed_once_) {
-//       ROS_INFO(
-//           "[%s] RC was disarmed once, now it is allowed to take over control",
-//           pnh_.getNamespace().c_str());
-//       rc_was_disarmed_once_ = true;
-//     }
+      // Immediately go into RC_FLIGHT state since RC always has priority
+      if (bridge_state_ != BridgeState::RC_FLIGHT) {
+        setBridgeState(BridgeState::RC_FLIGHT);
+        ROS_INFO("[%s] Control authority taken over by remote control.",
+                 pnh_.getNamespace().c_str());
+      }
+      sendSBusMessageToSerialPort(received_sbus_msg);
+      control_mode_ = received_sbus_msg.getControlMode();
+    } else if (bridge_state_ == BridgeState::RC_FLIGHT) {
+      // If the bridge was in state RC_FLIGHT and the RC is disarmed we set the
+      // state to AUTONOMOUS_FLIGHT
+      // In case there are valid control commands, the bridge will stay in
+      // AUTONOMOUS_FLIGHT, otherwise the watchdog will set the state to OFF
+      ROS_INFO("[%s] Control authority returned by remote control.",
+               pnh_.getNamespace().c_str());
+      if (bridge_armed_) {
+        setBridgeState(BridgeState::AUTONOMOUS_FLIGHT);
+      } else {
+        // When switching the bridge state to off, our watchdog ensures that a
+        // disarming off message is sent
+        setBridgeState(BridgeState::OFF);
+      }
+    } else if (!rc_was_disarmed_once_) {
+      ROS_INFO(
+          "[%s] RC was disarmed once, now it is allowed to take over control",
+          pnh_.getNamespace().c_str());
+      rc_was_disarmed_once_ = true;
+    }
 
-//     // Main mutex is unlocked here because it goes out of scope
-//   }
+    // Main mutex is unlocked here because it goes out of scope
+  }
 
 //   received_sbus_msg_pub_.publish(received_sbus_msg.toRosMessage());
 }
@@ -274,7 +274,6 @@ void SBusBridge::controlCommandCallback(
 
 void SBusBridge::sendSBusMessageToSerialPort(const SBusMsg& sbus_msg)
 {
-  std::cout << "sent" << std::endl;
   SBusMsg sbus_message_to_send = sbus_msg;
 
   switch (bridge_state_) {
@@ -474,43 +473,74 @@ void SBusBridge::publishLowLevelFeedback(const ros::TimerEvent& time) const {
 //   low_level_feedback_pub_.publish(low_level_feedback_msg);
 }
 
-// bool SBusBridge::loadParameters() {
-// #define GET_PARAM(name) \
-//   if (!quadrotor_common::getParam(#name, name##_, pnh_)) return false
-
-//   GET_PARAM(port_name);
-//   GET_PARAM(enable_receiving_sbus_messages);
-
-//   GET_PARAM(control_command_timeout);
-//   GET_PARAM(rc_timeout);
-
-//   GET_PARAM(mass);
-
-//   GET_PARAM(disable_thrust_mapping);
-
-//   GET_PARAM(max_roll_rate);
-//   GET_PARAM(max_pitch_rate);
-//   GET_PARAM(max_yaw_rate);
-//   max_roll_rate_ /= (180.0 / M_PI);
-//   max_pitch_rate_ /= (180.0 / M_PI);
-//   max_yaw_rate_ /= (180.0 / M_PI);
-
-//   GET_PARAM(max_roll_angle);
-//   GET_PARAM(max_pitch_angle);
-//   max_roll_angle_ /= (180.0 / M_PI);
-//   max_pitch_angle_ /= (180.0 / M_PI);
-
-//   GET_PARAM(alpha_vbat_filter);
-//   GET_PARAM(perform_thrust_voltage_compensation);
-//   GET_PARAM(n_lipo_cells);
-
-//   if (!thrust_mapping_.loadParameters()) {
-//     return false;
-//   }
-
-//   return true;
-
-// #undef GET_PARAM
-// }
+bool SBusBridge::loadParameters()
+{
+    if (!pnh_.getParam("port_name", port_name_)) {
+        ROS_ERROR("[%s] Could not load port_name parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("enable_receiving_sbus_messages", enable_receiving_sbus_messages_)) {
+        ROS_ERROR("[%s] Could not load enable_receiving_sbus_messages parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("control_command_timeout", control_command_timeout_)) {
+        ROS_ERROR("[%s] Could not load control_command_timeout parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("rc_timeout", rc_timeout_)) {
+        ROS_ERROR("[%s] Could not load rc_timeout parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("mass", mass_)) {
+        ROS_ERROR("[%s] Could not load mass parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("disable_thrust_mapping", disable_thrust_mapping_)) {
+        ROS_ERROR("[%s] Could not load disable_thrust_mapping parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("max_roll_rate", max_roll_rate_)) {
+        ROS_ERROR("[%s] Could not load max_roll_rate parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("max_pitch_rate", max_pitch_rate_)) {
+        ROS_ERROR("[%s] Could not load max_pitch_rate parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("max_yaw_rate", max_yaw_rate_)) {
+        ROS_ERROR("[%s] Could not load max_yaw_rate parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("max_roll_angle", max_roll_angle_)) {
+        ROS_ERROR("[%s] Could not load max_roll_angle parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("max_pitch_angle", max_pitch_angle_)) {
+        ROS_ERROR("[%s] Could not load max_pitch_angle parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("alpha_vbat_filter", alpha_vbat_filter_)) {
+        ROS_ERROR("[%s] Could not load alpha_vbat_filter parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("perform_thrust_voltage_compensation", perform_thrust_voltage_compensation_)) {
+        ROS_ERROR("[%s] Could not load perform_thrust_voltage_compensation parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!pnh_.getParam("n_lipo_cells", n_lipo_cells_)) {
+        ROS_ERROR("[%s] Could not load n_lipo_cells parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if (!thrust_mapping_.loadParameters()) {
+        return false;
+    }
+    max_roll_rate_ /= (180.0 / M_PI);
+    max_pitch_rate_ /= (180.0 / M_PI);
+    max_yaw_rate_ /= (180.0 / M_PI);
+    max_roll_angle_ /= (180.0 / M_PI);
+    max_pitch_angle_ /= (180.0 / M_PI);
+    
+    return true;
+}
 
 }  // namespace sbus_bridge
