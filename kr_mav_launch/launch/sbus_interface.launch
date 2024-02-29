@@ -1,0 +1,19 @@
+<launch>
+  <arg name="odom" default="odom"/>
+  <arg name="so3_cmd" default="so3_cmd"/>
+    
+  <node pkg="nodelet"
+      type="nodelet"
+      args="standalone kr_sbus_interface/SO3CmdToSbus"
+      name="so3cmd_to_sbus"
+      required="true"
+      clear_params="true"
+      output="screen">
+      <remap from="~odom" to="$(arg odom)"/>
+      <remap from="~so3_cmd" to="$(arg so3_cmd)"/>
+
+      <rosparam file="$(find kr_sbus_interface)/parameters/default.yaml"/>
+      <param name="port_name" value="/dev/ttyTHS0" />
+  </node>
+
+</launch>

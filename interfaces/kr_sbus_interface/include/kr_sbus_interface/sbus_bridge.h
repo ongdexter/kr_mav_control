@@ -26,6 +26,8 @@ class SBusBridge : public SBusSerialPort {
   SBusBridge() : SBusBridge(ros::NodeHandle(), ros::NodeHandle("~")) {}
 
   void controlCommandCallback(const kr_mav_msgs::SO3Command::ConstPtr& msg, const Eigen::Quaterniond& odom_q);
+  void armBridge();
+  void disarmBridge();
 
   virtual ~SBusBridge();
 
@@ -40,7 +42,6 @@ class SBusBridge : public SBusSerialPort {
 
   void setBridgeState(const BridgeState& desired_bridge_state);
 
-  void armBridgeCallback(const std_msgs::Bool::ConstPtr& msg);
   void batteryVoltageCallback(const std_msgs::Float32::ConstPtr& msg);
   void publishLowLevelFeedback(const ros::TimerEvent& time) const;
 

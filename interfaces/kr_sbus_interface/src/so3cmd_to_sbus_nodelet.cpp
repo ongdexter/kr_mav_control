@@ -75,6 +75,8 @@ void SO3CmdToSbus::imu_callback(const sensor_msgs::Imu::ConstPtr &pose)
 
 void SO3CmdToSbus::motors_on()
 {
+  sbus_bridge_.armBridge();
+  motor_status_ = 1;
   // call the update 0 success
 //   int res_update = sn_update_data();
 //   if(res_update == -1)
@@ -111,6 +113,8 @@ void SO3CmdToSbus::motors_on()
 
 void SO3CmdToSbus::motors_off()
 {
+  sbus_bridge_.disarmBridge();
+  motor_status_ = 0;
 //   do
 //   {
 //     // call the update, 0-success
@@ -141,11 +145,6 @@ void SO3CmdToSbus::motors_off()
 //   }
 }
 
-void SO3CmdToSbus::so3_cmd_to_sbus_interface(const kr_mav_msgs::SO3Command::ConstPtr &msg)
-{
-  sbus_bridge_.controlCommandCallback(msg, odom_q_);
-}
-
 void SO3CmdToSbus::so3_cmd_callback(const kr_mav_msgs::SO3Command::ConstPtr &msg)
 {
   if(!so3_cmd_set_)
@@ -157,7 +156,7 @@ void SO3CmdToSbus::so3_cmd_callback(const kr_mav_msgs::SO3Command::ConstPtr &msg
   else if(!msg->aux.enable_motors)
     motors_off();
 
-  so3_cmd_to_sbus_interface(msg);
+  sbus_bridge_.controlCommandCallback(msg, odom_q_);
 
   // save last so3_cmd
   last_so3_cmd_ = *msg;
