@@ -75,6 +75,7 @@ void SO3CmdToSbus::imu_callback(const sensor_msgs::Imu::ConstPtr &pose)
 
 void SO3CmdToSbus::motors_on()
 {
+  ROS_INFO("Motors on");
   sbus_bridge_.armBridge();
   motor_status_ = 1;
   // call the update 0 success

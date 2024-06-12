@@ -48,7 +48,6 @@ bool SBusSerialPort::connectSerialPort(const std::string& port) {
   // O_RDWR - Read and write
   // O_NOCTTY - Ignore special chars like CTRL-C
   serial_port_fd_ = open(port.c_str(), O_RDWR | O_NOCTTY);
-  ROS_INFO("[%s] Connect to serial port", ros::this_node::getName().c_str());
 
   if (serial_port_fd_ == -1) {
     ROS_ERROR("[%s] Could not open serial port %s",
@@ -62,6 +61,9 @@ bool SBusSerialPort::connectSerialPort(const std::string& port) {
               ros::this_node::getName().c_str());
     return false;
   }
+
+  ROS_INFO("[%s] Connected to serial port %s",
+           ros::this_node::getName().c_str(), port.c_str());
 
   return true;
 }
