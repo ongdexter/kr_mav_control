@@ -123,20 +123,20 @@ void SBusBridge::watchdogThread() {
       setBridgeState(BridgeState::AUTONOMOUS_FLIGHT);
     }
 
-    // if (bridge_state_ == BridgeState::ARMING ||
-    //     bridge_state_ == BridgeState::AUTONOMOUS_FLIGHT) {
-    //   if (time_now - time_last_active_control_command_received_ >
-    //       ros::Duration(control_command_timeout_)) {
-    //     // When switching the bridge state to off, our watchdog ensures that a
-    //     // disarming off message is repeated.
-    //     ROS_INFO("No active control command received, setting bridge state to OFF");
-    //     setBridgeState(BridgeState::OFF);
-    //     // Note: Control could theoretically still be taken over by RC but if
-    //     // this happened in flight it might require super human reaction since
-    //     // in this case the quad can not be armed with non zero throttle by
-    //     // the remote.
-    //   }
-    // }
+    if (bridge_state_ == BridgeState::ARMING ||
+        bridge_state_ == BridgeState::AUTONOMOUS_FLIGHT) {
+      if (time_now - time_last_active_control_command_received_ >
+          ros::Duration(control_command_timeout_)) {
+        // When switching the bridge state to off, our watchdog ensures that a
+        // disarming off message is repeated.
+        ROS_INFO("No active control command received, setting bridge state to OFF");
+        setBridgeState(BridgeState::OFF);
+        // Note: Control could theoretically still be taken over by RC but if
+        // this happened in flight it might require super human reaction since
+        // in this case the quad can not be armed with non zero throttle by
+        // the remote.
+      }
+    }
 
     if (bridge_state_ == BridgeState::OFF) {
       // Send off message that disarms the vehicle
@@ -362,6 +362,29 @@ void SBusBridge::sendSBusMessageToSerialPort(const SBusMsg& sbus_msg)
   time_last_sbus_msg_sent_ = ros::Time::now();
 }
 
+static std::pair<double, double> solve_quadratic(double a, double b, double c)
+{
+  const double term1 = -b, term2 = std::sqrt(b * b - 4 * a * c);
+  return std::make_pair((term1 + term2) / (2 * a), (term1 - term2) / (2 * a));
+}
+
+double SBusBridge::thrust_model_kartik(double thrust) const
+{
+  int num_props = 4;
+  double avg_thrust = std::max(0.0, thrust) / num_props;
+
+  // Scale thrust to individual rotor velocities (RPM)
+  auto rpm_solutions =
+      solve_quadratic(thrust_vs_rpm_cof_a_, thrust_vs_rpm_cof_b_,
+                      thrust_vs_rpm_cof_c_ - avg_thrust);
+  const double omega_avg = std::max(rpm_solutions.first, rpm_solutions.second);
+
+  // Scaling from rotor velocity (RPM) to att_throttle for pixhawk
+  double throttle =
+      (omega_avg - rpm_vs_throttle_linear_coeff_b_) / rpm_vs_throttle_linear_coeff_a_;
+  return throttle;
+}
+
 SBusMsg SBusBridge::generateSBusMessageFromSO3Command(const kr_mav_msgs::SO3Command::ConstPtr& msg, const Eigen::Quaterniond& odom_q) const
 {
   SBusMsg sbus_msg;
@@ -382,8 +405,12 @@ SBusMsg SBusBridge::generateSBusMessageFromSO3Command(const kr_mav_msgs::SO3Comm
 
   double thrust = f_des(0) * R_cur(0, 2) + f_des(1) * R_cur(1, 2) + f_des(2) * R_cur(2, 2);
 
-  sbus_msg.setThrottleCommand(thrust_mapping_.inverseThrustMapping(
-          thrust * mass_, battery_voltage_));
+  double throttle = 0.0;
+  throttle = thrust_model_kartik(thrust);
+
+  sbus_msg.setThrottleCommand(throttle);
+//   sbus_msg.setThrottleCommand(thrust_mapping_.inverseThrustMapping(
+//           thrust * mass_, battery_voltage_));
 
   // convert quaternion to euler
   Eigen::Vector3d desired_euler_angles = q_des.toRotationMatrix().eulerAngles(0, 1, 2);
@@ -407,8 +434,8 @@ SBusMsg SBusBridge::generateSBusMessageFromSO3Command(const kr_mav_msgs::SO3Comm
           round((msg->angular_velocity.z / max_yaw_rate_) *
                   (SBusMsg::kMaxCmd - SBusMsg::kMeanCmd) +
               SBusMsg::kMeanCmd));
-  ROS_INFO("Thrust: %f", thrust_mapping_.inverseThrustMapping(
-        thrust * mass_, battery_voltage_));
+//   ROS_INFO("Thrust: %f", thrust_mapping_.inverseThrustMapping(
+//         thrust * mass_, battery_voltage_));
   // ROS_INFO("Roll: %f", round((desired_euler_angles(0) / max_roll_angle_) *
   //                 (SBusMsg::kMaxCmd - SBusMsg::kMeanCmd) +
   //             SBusMsg::kMeanCmd));
@@ -572,9 +599,39 @@ bool SBusBridge::loadParameters()
         ROS_ERROR("[%s] Could not load n_lipo_cells parameter.", pnh_.getNamespace().c_str());
         return false;
     }
-    if (!thrust_mapping_.loadParameters()) {
+    if(!pnh_.getParam("thrust_vs_rpm_cof_a_", thrust_vs_rpm_cof_a_)) {
+        ROS_ERROR("[%s] Could not load thrust_vs_rpm_cof_a_ parameter.", pnh_.getNamespace().c_str());
         return false;
     }
+    if(!pnh_.getParam("thrust_vs_rpm_cof_b_", thrust_vs_rpm_cof_b_)) {
+        ROS_ERROR("[%s] Could not load thrust_vs_rpm_cof_b_ parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if(!pnh_.getParam("thrust_vs_rpm_cof_c_", thrust_vs_rpm_cof_c_)) {
+        ROS_ERROR("[%s] Could not load thrust_vs_rpm_cof_c_ parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if(!pnh_.getParam("rpm_vs_throttle_linear_coeff_a_", rpm_vs_throttle_linear_coeff_a_)) {
+        ROS_ERROR("[%s] Could not load rpm_vs_throttle_linear_coeff_a_ parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if(!pnh_.getParam("rpm_vs_throttle_linear_coeff_b_", rpm_vs_throttle_linear_coeff_b_)) {
+        ROS_ERROR("[%s] Could not load rpm_vs_throttle_linear_coeff_b_ parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if(!pnh_.getParam("rpm_vs_throttle_quadratic_coeff_a_", rpm_vs_throttle_quadratic_coeff_a_)) {
+        ROS_ERROR("[%s] Could not load rpm_vs_throttle_quadratic_coeff_a_ parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if(!pnh_.getParam("rpm_vs_throttle_quadratic_coeff_b_", rpm_vs_throttle_quadratic_coeff_b_)) {
+        ROS_ERROR("[%s] Could not load rpm_vs_throttle_quadratic_coeff_b_ parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+    if(!pnh_.getParam("rpm_vs_throttle_quadratic_coeff_c_", rpm_vs_throttle_quadratic_coeff_c_)) {
+        ROS_ERROR("[%s] Could not load rpm_vs_throttle_quadratic_coeff_c_ parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
+
     max_roll_rate_ /= (180.0 / M_PI);
     max_pitch_rate_ /= (180.0 / M_PI);
     max_yaw_rate_ /= (180.0 / M_PI);
