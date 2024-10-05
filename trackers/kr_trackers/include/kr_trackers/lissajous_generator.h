@@ -1,3 +1,5 @@
+// TODO: convert to hpp and compatible with ros2
+
 #ifndef _LISSAJOUS_GENERATOR_H_
 #define _LISSAJOUS_GENERATOR_H_
 

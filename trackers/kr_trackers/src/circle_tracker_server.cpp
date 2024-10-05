@@ -3,6 +3,8 @@
  * x(t) = [Ax*cos(2*pi*t/T); Ay*sin(2*pi*t/T); 0] + init_pos.
  * Yaw is constant. */
 
+// TODO: convert to ros2 compatible format
+
 #include <actionlib/server/simple_action_server.h>
 #include <kr_mav_msgs/PositionCommand.h>
 #include <kr_tracker_msgs/CircleTrackerAction.h>

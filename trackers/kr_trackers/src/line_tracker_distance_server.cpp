@@ -1,11 +1,12 @@
-#include <actionlib/server/simple_action_server.h>
-#include <kr_mav_msgs/PositionCommand.h>
-#include <kr_tracker_msgs/LineTrackerAction.h>
-#include <kr_tracker_msgs/TrackerStatus.h>
-#include <kr_trackers/initial_conditions.h>
-#include <kr_trackers_manager/Tracker.h>
-#include <ros/ros.h>
-#include <tf/transform_datatypes.h>
+#include "rclcpp_action/rclcpp_action.hpp"
+#include "kr_mav_msgs/msg/position_command.hpp"
+#include "kr_tracker_msgs/action/line_tracker.hpp"
+#include "kr_tracker_msgs/msg/tracker_status.hpp"
+#include "kr_trackers/initial_conditions.hpp"
+#include "kr_trackers/Tracker.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "tf2/utils.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 #include <Eigen/Geometry>
 #include <memory>
@@ -13,28 +14,34 @@
 class LineTrackerDistance : public kr_trackers_manager::Tracker
 {
  public:
-  LineTrackerDistance(void);
+  explicit LineTrackerDistance();
 
-  void Initialize(const ros::NodeHandle &nh);
-  bool Activate(const kr_mav_msgs::PositionCommand::ConstPtr &cmd);
+  void Initialize(rclcpp_lifecycle::LifecycleNode::WeakPtr &parent);
+  bool Activate(const kr_mav_msgs::msg::PositionCommand::ConstSharedPtr cmd);
   void Deactivate(void);
 
-  kr_mav_msgs::PositionCommand::ConstPtr update(const nav_msgs::Odometry::ConstPtr &msg);
+  kr_mav_msgs::msg::PositionCommand::ConstSharedPtr update(const nav_msgs::msg::Odometry::SharedPtr msg);
 
-  uint8_t status() const;
+  uint8_t status();
 
- private:
-  void goal_callback();
+ protected:
+  rclcpp::Logger logger_{rclcpp::get_logger("trackers_manager")};
+  rclcpp::Clock::SharedPtr clock_;
 
-  void preempt_callback();
+  using LineTracker = kr_tracker_msgs::action::LineTracker;
+  using LineTrackerGoalHandle = rclcpp_action::ServerGoalHandle<LineTracker>;
 
-  typedef actionlib::SimpleActionServer<kr_tracker_msgs::LineTrackerAction> ServerType;
+  rclcpp_action::GoalResponse goal_callback(const rclcpp_action::GoalUUID &uuid, std::shared_ptr<const LineTracker::Goal> goal);
+  rclcpp_action::CancelResponse cancel_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle);
+  void handle_accepted_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle);
 
-  // Action server that takes a goal.
-  // Must be a pointer, because plugin does not support a constructor
-  // with inputs, but an action server must be initialized with a Nodehandle.
-  std::shared_ptr<ServerType> tracker_server_;
+  rclcpp_action::Server<LineTracker>::SharedPtr tracker_server_;
+  rclcpp::CallbackGroup::SharedPtr cb_group_;
+  std::shared_ptr<LineTrackerGoalHandle> current_goal_handle_;
+  rclcpp_action::GoalUUID preempted_goal_id_;
+  std::recursive_mutex mutex_;
 
+  bool preempt_requested_;
   bool pos_set_, goal_set_, goal_reached_;
   double default_v_des_, default_a_des_, epsilon_;
   float v_des_, a_des_;
@@ -48,43 +55,65 @@ class LineTrackerDistance : public kr_trackers_manager::Tracker
   float current_traj_duration_;
   // Distance traveled to get to last goal.
   float current_traj_length_;
+
+  std::shared_ptr<kr_tracker_msgs::action::LineTracker::Result> result_;
 };
 
-LineTrackerDistance::LineTrackerDistance(void) : pos_set_(false), goal_set_(false), goal_reached_(true), active_(false)
+LineTrackerDistance::LineTrackerDistance() 
+  : preempt_requested_(false),
+    pos_set_(false), 
+    goal_set_(false), 
+    goal_reached_(true), 
+    active_(false)
 {
 }
 
-void LineTrackerDistance::Initialize(const ros::NodeHandle &nh)
+void LineTrackerDistance::Initialize(rclcpp_lifecycle::LifecycleNode::WeakPtr &parent)
 {
-  ros::NodeHandle priv_nh(nh, "line_tracker_distance");
+  auto node = parent.lock();
+  logger_ = node->get_logger();
+  clock_ = node->get_clock();
 
-  priv_nh.param("default_v_des", default_v_des_, 0.5);
-  priv_nh.param("default_a_des", default_a_des_, 0.5);
-  priv_nh.param("epsilon", epsilon_, 0.1);
+  node->declare_parameter("line_tracker_distance/default_v_des", 0.5);
+  node->declare_parameter("line_tracker_distance/default_a_des", 0.5);
+  node->declare_parameter("line_tracker_distance/epsilon", 0.1);
 
-  v_des_ = default_v_des_;
-  a_des_ = default_a_des_;
+  default_v_des_ = node->get_parameter("line_tracker_distance/default_v_des").as_double();
+  default_a_des_ = node->get_parameter("line_tracker_distance/default_a_des").as_double();
+  epsilon_ = node->get_parameter("line_tracker_distance/epsilon").as_double();
 
-  // Set up the action server.
-  tracker_server_ = std::shared_ptr<ServerType>(new ServerType(priv_nh, "LineTracker", false));
-  tracker_server_->registerGoalCallback(boost::bind(&LineTrackerDistance::goal_callback, this));
-  tracker_server_->registerPreemptCallback(boost::bind(&LineTrackerDistance::preempt_callback, this));
+  v_des_ = static_cast<float>(default_v_des_);
+  a_des_ = static_cast<float>(default_a_des_);
 
-  tracker_server_->start();
+  // Set up the action server
+  cb_group_ = node->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  // tracker_server_ = rclcpp_action::create_server<LineTracker>
+  tracker_server_ = rclcpp_action::create_server<LineTracker>(
+    node,
+    "~/line_tracker_distance/LineTracker",
+    std::bind(&LineTrackerDistance::goal_callback, this, std::placeholders::_1, std::placeholders::_2),
+    std::bind(&LineTrackerDistance::cancel_callback, this, std::placeholders::_1),
+    std::bind(&LineTrackerDistance::handle_accepted_callback, this, std::placeholders::_1), 
+    rcl_action_server_get_default_options(),
+    cb_group_
+    );
+
+  RCLCPP_INFO(logger_, "Initialized Line Tracker Distance");
 }
 
-bool LineTrackerDistance::Activate(const kr_mav_msgs::PositionCommand::ConstPtr &cmd)
-{
-  // Only allow activation if a goal has been set
+bool LineTrackerDistance::Activate(const kr_mav_msgs::msg::PositionCommand::ConstSharedPtr cmd)
+{ 
+  (void)cmd;
   if(goal_set_ && pos_set_)
   {
-    // Check that the action server has a goal.
-    if(!tracker_server_->isActive())
     {
-      ROS_WARN("LineTrackerDistance::Activate: goal_set_ is true but action server has no active goal - not "
-               "activating.");
-      active_ = false;
-      return active_;
+      std::lock_guard<std::recursive_mutex> lock(mutex_);
+      if(!current_goal_handle_ || !current_goal_handle_->is_active())
+      {
+        RCLCPP_WARN(logger_, "LineTrackerDistance::Activate: goal_set_ is true but action server has no active goal - not activating.");
+        active_ = false;
+        return active_;
+      }
     }
 
     // Set start and start_yaw here so that even if the goal was sent at a
@@ -102,10 +131,14 @@ bool LineTrackerDistance::Activate(const kr_mav_msgs::PositionCommand::ConstPtr 
 
 void LineTrackerDistance::Deactivate(void)
 {
-  if(tracker_server_->isActive())
   {
-    ROS_WARN("LineTrackerDistance::Deactivate: deactivated tracker while still tracking the goal.");
-    tracker_server_->setAborted();
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    if(current_goal_handle_ && current_goal_handle_->is_active())
+    {
+      RCLCPP_WARN(logger_, "LineTrackerDistance::Deactivate: deactivated tracker while still tracking the goal.");
+      current_goal_handle_->abort(result_);
+      current_goal_handle_.reset();
+    }
   }
 
   ICs_.reset();
@@ -113,8 +146,10 @@ void LineTrackerDistance::Deactivate(void)
   active_ = false;
 }
 
-kr_mav_msgs::PositionCommand::ConstPtr LineTrackerDistance::update(const nav_msgs::Odometry::ConstPtr &msg)
+kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerDistance::update(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+
   // Record distance between last position and current.
   const float dx = Eigen::Vector3f((pos_(0) - msg->pose.pose.position.x), (pos_(1) - msg->pose.pose.position.y),
                                    (pos_(2) - msg->pose.pose.position.z))
@@ -123,33 +158,53 @@ kr_mav_msgs::PositionCommand::ConstPtr LineTrackerDistance::update(const nav_msg
   pos_(0) = msg->pose.pose.position.x;
   pos_(1) = msg->pose.pose.position.y;
   pos_(2) = msg->pose.pose.position.z;
-  yaw_ = tf::getYaw(msg->pose.pose.orientation);
+  yaw_ = tf2::getYaw(msg->pose.pose.orientation);
   pos_set_ = true;
   ICs_.set_from_odom(msg);
 
-  static ros::Time t_prev = msg->header.stamp;
-  const double dT = (msg->header.stamp - t_prev).toSec();
+  static rclcpp::Time t_prev = msg->header.stamp;
+  const double dT = ((rclcpp::Time)msg->header.stamp - t_prev).seconds();
   t_prev = msg->header.stamp;
 
   if(!active_)
   {
-    return kr_mav_msgs::PositionCommand::Ptr();
+    return kr_mav_msgs::msg::PositionCommand::ConstSharedPtr();
   }
 
   // Track the distance and time in the current trajectory.
   current_traj_duration_ += dT;
   current_traj_length_ += dx;
 
-  kr_mav_msgs::PositionCommand::Ptr cmd(new kr_mav_msgs::PositionCommand);
-  cmd->header.stamp = ros::Time::now();
+  auto result = std::make_shared<LineTracker::Result>();
+  result->x = pos_(0);
+  result->y = pos_(1);
+  result->z = pos_(2);
+  result->yaw = yaw_;
+  result->duration = current_traj_duration_;
+  result->length = current_traj_length_;
+  result_ = result;
+
+  if(current_goal_handle_ && current_goal_handle_->is_canceling())
+  {
+    RCLCPP_INFO(logger_, "LineTrackerDistance going to goal (%2.2f, %2.2f, %2.2f) canceled.", goal_(0), goal_(1), goal_(2));
+  
+    current_goal_handle_->canceled(result);
+    goal_ = pos_;
+    goal_set_ = false;
+    goal_reached_ = false;
+    return kr_mav_msgs::msg::PositionCommand::ConstSharedPtr();
+  }
+
+  auto cmd = std::make_shared<kr_mav_msgs::msg::PositionCommand>();
+  cmd->header.stamp = clock_->now();
   cmd->header.frame_id = msg->header.frame_id;
   cmd->yaw = start_yaw_;
 
   if(goal_reached_)
   {
-    if(tracker_server_->isActive())
+    if(current_goal_handle_->is_active())
     {
-      ROS_ERROR("LineTrackerDistance::update: Action server not completed.\n");
+      RCLCPP_ERROR(logger_, "LineTrackerDistance::update: Action server not completed.\n");
     }
 
     cmd->position.x = goal_(0), cmd->position.y = goal_(1), cmd->position.z = goal_(2);
@@ -160,7 +215,7 @@ kr_mav_msgs::PositionCommand::ConstPtr LineTrackerDistance::update(const nav_msg
     return cmd;
   }
 
-  const Eigen::Vector3f dir = (goal_ - start_).normalized();
+  const Eigen::Vector3f dir = (goal_ -  start_).normalized();
   const float total_dist = (goal_ - start_).norm();
   const float d = (pos_ - start_).dot(dir);
   const Eigen::Vector3f proj = start_ + d * dir;
@@ -170,22 +225,23 @@ kr_mav_msgs::PositionCommand::ConstPtr LineTrackerDistance::update(const nav_msg
 
   Eigen::Vector3f x(pos_), v(Eigen::Vector3f::Zero()), a(Eigen::Vector3f::Zero());
 
-  if((pos_ - goal_).norm() <= epsilon_)  // Reached goal
+  if((pos_ - goal_).norm() <= epsilon_) // Reached goal
   {
-    // Send a success message and reset the length and duration variables.
-    kr_tracker_msgs::LineTrackerResult result;
-    result.duration = current_traj_duration_;
-    result.length = current_traj_length_;
-    result.x = goal_(0);
-    result.y = goal_(1);
-    result.z = goal_(2);
-    result.yaw = start_yaw_;
-    tracker_server_->setSucceeded(result);
+    // Send success message and reset the length and duration variables
+    result->duration = current_traj_duration_;
+    result->length = current_traj_length_;
+    result->x = goal_(0);
+    result->y = goal_(1);
+    result->z = goal_(2);
+    result->yaw = start_yaw_;
+    current_goal_handle_->succeed(result);
+    result_ = result;
+    current_goal_handle_.reset(); 
 
     current_traj_duration_ = 0.0;
     current_traj_length_ = 0.0;
 
-    ROS_DEBUG_THROTTLE(1, "Reached goal");
+    RCLCPP_DEBUG_THROTTLE(logger_, *clock_, 1000, "Reached goal");
     a = Eigen::Vector3f::Zero();
     v = Eigen::Vector3f::Zero();
     x = goal_;
@@ -193,35 +249,35 @@ kr_mav_msgs::PositionCommand::ConstPtr LineTrackerDistance::update(const nav_msg
   }
   else if(d > total_dist)  // Overshoot
   {
-    ROS_DEBUG_THROTTLE(1, "Overshoot");
+    RCLCPP_DEBUG_THROTTLE(logger_, *clock_, 1000, "Overshoot");
     a = -a_des_ * dir;
     v = Eigen::Vector3f::Zero();
     x = goal_;
   }
-  else if(d >= (total_dist - ramp_dist) && d <= total_dist)  // Decelerate
+  else if(d >= (total_dist - ramp_dist) && d <= total_dist) // Decelerate
   {
-    ROS_DEBUG_THROTTLE(1, "Decelerate");
+    RCLCPP_DEBUG_THROTTLE(logger_, *clock_, 1000, "Decelerate");
     a = -a_des_ * dir;
     v = std::sqrt(2 * a_des_ * (total_dist - d)) * dir;
     x = proj + v * dT + 0.5 * a * dT * dT;
   }
-  else if(d > ramp_dist && d < total_dist - ramp_dist)  // Constant velocity
+  else if(d > ramp_dist && d < total_dist - ramp_dist) // Constant velocity
   {
-    ROS_DEBUG_THROTTLE(1, "Constant velocity");
+    RCLCPP_DEBUG_THROTTLE(logger_, *clock_, 1000, "Constant velocity");
     a = Eigen::Vector3f::Zero();
     v = v_max * dir;
     x = proj + v * dT;
   }
-  else if(d >= 0 && d <= ramp_dist)  // Accelerate
+  else if(d >= 0 && d <= ramp_dist) // Accelerate
   {
-    ROS_DEBUG_THROTTLE(1, "Accelerate");
+    RCLCPP_DEBUG_THROTTLE(logger_, *clock_, 1000, "Accelerate");
     a = a_des_ * dir;
     v = std::sqrt(2 * a_des_ * d) * dir;
     x = proj + v * dT + 0.5 * a * dT * dT;
   }
   else if(d < 0)
   {
-    ROS_DEBUG_THROTTLE(1, "Undershoot");
+    RCLCPP_DEBUG_THROTTLE(logger_, *clock_, 1000, "Undershoot");
     a = a_des_ * dir;
     v = Eigen::Vector3f::Zero();
     x = start_ + 0.5 * a * dT * dT;
@@ -233,53 +289,79 @@ kr_mav_msgs::PositionCommand::ConstPtr LineTrackerDistance::update(const nav_msg
 
   if(!goal_reached_)
   {
-    kr_tracker_msgs::LineTrackerFeedback feedback;
-    feedback.distance_from_goal = (pos_ - goal_).norm();
-    tracker_server_->publishFeedback(feedback);
+    auto feedback = std::make_shared<LineTracker::Feedback>();
+    feedback->distance_from_goal = (pos_ - goal_).norm();
+    current_goal_handle_->publish_feedback(feedback);
   }
 
   return cmd;
 }
 
-void LineTrackerDistance::goal_callback()
+rclcpp_action::GoalResponse LineTrackerDistance::goal_callback(const rclcpp_action::GoalUUID &uuid, std::shared_ptr<const LineTracker::Goal> goal)
 {
+  (void)uuid;
+  (void)goal;
   // If another goal is already active, cancel that goal
-  // and track this one instead.
-  if(tracker_server_->isActive())
+  // and track this one instead
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  if(current_goal_handle_ && current_goal_handle_->is_active())
   {
-    ROS_INFO("LineTrackerDistance goal (%2.2f, %2.2f, %2.2f) aborted.", goal_(0), goal_(1), goal_(2));
-    tracker_server_->setAborted();
+    RCLCPP_INFO(logger_, "LineTrackerDistance goal (%2.2f, %2.2f, %2.2f) preempted.", goal_(0), goal_(1), goal_(2));
+    preempted_goal_id_ = current_goal_handle_->get_goal_id();
+    preempt_requested_ = true;
+    
+    goal_ = pos_;
+    goal_set_ = false;
+    goal_reached_ = false;
   }
 
-  // Pointer to the goal recieved.
-  const auto msg = tracker_server_->acceptNewGoal();
+  return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+}
 
-  current_traj_duration_ = 0.0;
-  current_traj_length_ = 0.0;
+rclcpp_action::CancelResponse LineTrackerDistance::cancel_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle)
+{
+  RCLCPP_INFO(logger_, "Received Cancel Request.");
+  (void)goal_handle;
 
-  // If preempt has been requested, then set this goal to preempted
-  // and make no changes to the tracker state.
-  if(tracker_server_->isPreemptRequested())
+  goal_ = pos_;
+  goal_set_ = false;
+  goal_reached_ = false;
+
+  return rclcpp_action::CancelResponse::ACCEPT;
+}
+
+void LineTrackerDistance::handle_accepted_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle)
+{
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+
+  if(current_goal_handle_ && preempt_requested_)
   {
-    ROS_INFO("LineTrackerDistance going to goal (%2.2f, %2.2f, %2.2f) preempted.", msg->x, msg->y, msg->z);
-    tracker_server_->setPreempted();
-    return;
+    if(current_goal_handle_->get_goal_id() == preempted_goal_id_)
+    {
+      RCLCPP_INFO(logger_, "LineTrackerDistance going to goal (%2.2f, %2.2f, %2.2f) aborted.", goal_(0), goal_(1), goal_(2));
+      current_goal_handle_->abort(result_);
+      preempt_requested_ = false;
+    }
   }
 
-  goal_(0) = msg->x;
-  goal_(1) = msg->y;
-  goal_(2) = msg->z;
+  // Pointer to the goal received
+  current_goal_handle_ = goal_handle;
 
-  if(msg->relative)
+  auto goal = goal_handle->get_goal();
+  goal_(0) = goal->x;
+  goal_(1) = goal->y;
+  goal_(2) = goal->z;
+
+  if(goal->relative)
     goal_ += ICs_.pos();
 
-  if(msg->v_des > 0)
-    v_des_ = msg->v_des;
+  if(goal->v_des > 0)
+    v_des_ = goal->v_des;
   else
     v_des_ = default_v_des_;
 
-  if(msg->a_des > 0)
-    a_des_ = msg->a_des;
+  if(goal->a_des > 0)
+    a_des_ = goal->a_des;
   else
     a_des_ = default_a_des_;
 
@@ -293,31 +375,12 @@ void LineTrackerDistance::goal_callback()
   goal_reached_ = false;
 }
 
-void LineTrackerDistance::preempt_callback()
+uint8_t LineTrackerDistance::status()
 {
-  if(tracker_server_->isActive())
-  {
-    ROS_INFO("LineTrackerDistance going to goal (%2.2f, %2.2f, %2.2f) aborted.", goal_(0), goal_(1), goal_(2));
-    tracker_server_->setAborted();
-  }
-  else
-  {
-    ROS_INFO("LineTrackerDistance going to goal (%2.2f, %2.2f, %2.2f) preempted.", goal_(0), goal_(1), goal_(2));
-    tracker_server_->setPreempted();
-  }
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
 
-  // TODO: How much overshoot will this cause at high velocities?
-  goal_ = pos_;
-
-  goal_set_ = false;
-  goal_reached_ = true;
+  return current_goal_handle_->is_active() ? static_cast<uint8_t>(kr_tracker_msgs::msg::TrackerStatus::ACTIVE) : static_cast<uint8_t>(kr_tracker_msgs::msg::TrackerStatus::SUCCEEDED);
 }
 
-uint8_t LineTrackerDistance::status() const
-{
-  return tracker_server_->isActive() ? static_cast<uint8_t>(kr_tracker_msgs::TrackerStatus::ACTIVE) :
-                                       static_cast<uint8_t>(kr_tracker_msgs::TrackerStatus::SUCCEEDED);
-}
-
-#include <pluginlib/class_list_macros.h>
-PLUGINLIB_EXPORT_CLASS(LineTrackerDistance, kr_trackers_manager::Tracker);
+#include "pluginlib/class_list_macros.hpp"
+PLUGINLIB_EXPORT_CLASS(LineTrackerDistance, kr_trackers_manager::Tracker)
