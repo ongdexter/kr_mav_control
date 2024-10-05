@@ -1,48 +1,64 @@
 cmake_minimum_required(VERSION 3.10)
 project(kr_trackers_manager)
 
-# set default build type
-if(NOT CMAKE_BUILD_TYPE)
-  set(CMAKE_BUILD_TYPE RelWithDebInfo)
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
-set(CMAKE_CXX_STANDARD 14)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-add_compile_options(-Wall)
+# find dependencies
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rcutils REQUIRED)
+find_package(rclcpp_components REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
+find_package(kr_mav_msgs REQUIRED)
+find_package(kr_trackers REQUIRED)
+find_package(kr_tracker_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(pluginlib REQUIRED)
+find_package(lifecycle_msgs REQUIRED)
+# find_package(geometry_msgs REQUIRED)
+# find_package(tf2 REQUIRED)
+# find_package(tf2_geometry_msgs REQUIRED)
 
-find_package(
-  catkin REQUIRED
-  COMPONENTS roscpp
-             nodelet
-             pluginlib
-             nav_msgs
-             kr_mav_msgs
-             kr_tracker_msgs)
-
-catkin_package(
-  INCLUDE_DIRS
+include_directories(
   include
-  LIBRARIES
-  ${PROJECT_NAME}
-  CATKIN_DEPENDS
-  roscpp
-  nodelet
-  pluginlib
-  kr_mav_msgs
-  nav_msgs
-  kr_tracker_msgs)
+)
 
-add_library(${PROJECT_NAME} src/trackers_manager.cpp)
-target_include_directories(${PROJECT_NAME} PUBLIC include ${catkin_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} PUBLIC ${catkin_LIBRARIES})
-add_dependencies(${PROJECT_NAME} ${catkin_EXPORTED_TARGETS} ${${PROJECT_NAME}_EXPORTED_TARGETS})
+set(plugins_dependencies
+  pluginlib
+)
+
+set(node_dependencies
+  ${plugins_dependencies}
+  rclcpp
+  rclcpp_components
+  rclcpp_lifecycle
+  rcutils
+  kr_mav_msgs
+  kr_trackers
+  kr_tracker_msgs
+  nav_msgs
+)
+
+add_library(${PROJECT_NAME} SHARED src/trackers_manager.cpp src/lifecycle_manager.cpp)
+ament_target_dependencies(${PROJECT_NAME} ${node_dependencies} lifecycle_msgs)
+target_compile_definitions(${PROJECT_NAME} PUBLIC "PLUGINLIB__DISABLE_BOOST_FUNCTIONS")
+rclcpp_components_register_nodes(${PROJECT_NAME} "TrackersManager")
+rclcpp_components_register_nodes(${PROJECT_NAME} "TrackersManagerLifecycleManager")
 
 install(
   TARGETS ${PROJECT_NAME}
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+  )
 
-install(DIRECTORY include/${PROJECT_NAME}/ DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION})
-install(FILES nodelet_plugin.xml DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
+install(DIRECTORY 
+  config
+  launch
+  DESTINATION share/${PROJECT_NAME}
+)
+  
+ament_export_dependencies(${THIS_PACKAGE_INCLUDE_DEPENDS})
+ament_package()

@@ -1,111 +1,127 @@
-#include <kr_tracker_msgs/TrackerStatus.h>
-#include <kr_tracker_msgs/Transition.h>
-#include <kr_trackers_manager/Tracker.h>
-#include <nav_msgs/Odometry.h>
-#include <nodelet/nodelet.h>
-#include <pluginlib/class_loader.h>
-#include <ros/ros.h>
+#include "kr_tracker_msgs/msg/tracker_status.hpp"
+#include "kr_tracker_msgs/srv/transition.hpp"
+#include "kr_trackers/Tracker.hpp"
+#include "nav_msgs/msg/odometry.hpp"
+#include "rclcpp/rclcpp.hpp"
+#include "rclcpp_components/node_factory.hpp"
+#include "rclcpp_components/component_manager.hpp"
+#include "composition_interfaces/srv/load_node.hpp"
+#include <pluginlib/class_loader.hpp>
+#include "rclcpp_lifecycle/lifecycle_node.hpp"
 
-class TrackersManager : public nodelet::Nodelet
+using LifecycleCallbackReturn = rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn;
+
+class TrackersManager : public rclcpp_lifecycle::LifecycleNode
 {
  public:
-  TrackersManager(void);
+  TrackersManager(const rclcpp::NodeOptions &options);
   ~TrackersManager(void);
 
-  void onInit(void);
+  // std::shared_ptr<kr_trackers_manager::Tracker> ptr_;
 
- private:
-  void odom_callback(const nav_msgs::Odometry::ConstPtr &msg);
-  bool transition_callback(kr_tracker_msgs::Transition::Request &req, kr_tracker_msgs::Transition::Response &res);
+  LifecycleCallbackReturn on_configure(const rclcpp_lifecycle::State &previous_state);
+  LifecycleCallbackReturn on_activate(const rclcpp_lifecycle::State &previous_state);
+  LifecycleCallbackReturn on_shutdown(const rclcpp_lifecycle::State &previous_state);
 
-  ros::Subscriber sub_odom_;
-  ros::Publisher pub_cmd_, pub_status_;
-  ros::ServiceServer srv_tracker_;
+ protected:
+  void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg);
+  void transition_callback(const kr_tracker_msgs::srv::Transition::Request::SharedPtr req,
+                           const kr_tracker_msgs::srv::Transition::Response::SharedPtr res);
+  
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr sub_odom_;
+  rclcpp::Publisher<kr_mav_msgs::msg::PositionCommand>::SharedPtr pub_cmd_;
+  rclcpp::Publisher<kr_tracker_msgs::msg::TrackerStatus>::SharedPtr pub_status_;
+  rclcpp::Service<kr_tracker_msgs::srv::Transition>::SharedPtr srv_tracker_;
   pluginlib::ClassLoader<kr_trackers_manager::Tracker> tracker_loader_;
-  kr_trackers_manager::Tracker *active_tracker_;
-  std::map<std::string, kr_trackers_manager::Tracker *> tracker_map_;
-  kr_mav_msgs::PositionCommand::ConstPtr cmd_;
+  // kr_trackers_manager::Tracker *active_tracker; // switched this to use smart pointers
+  std::shared_ptr<kr_trackers_manager::Tracker> active_tracker_;
+  // std::map<std::string, kr_trackers_manager::Tracker *> tracker_map_; // switched this to use smart pointers
+  std::map<std::string, std::shared_ptr<kr_trackers_manager::Tracker>> tracker_map_;
+  kr_mav_msgs::msg::PositionCommand::ConstSharedPtr cmd_;
 };
 
-TrackersManager::TrackersManager(void)
-    : tracker_loader_("kr_trackers_manager", "kr_trackers_manager::Tracker"), active_tracker_(NULL)
+TrackersManager::TrackersManager(const rclcpp::NodeOptions &options)
+    : LifecycleNode("trackers_manager", options),
+      tracker_loader_("kr_trackers", "kr_trackers_manager::Tracker")
 {
+  RCLCPP_INFO(this->get_logger(), "IN TRACKERS MANAGER CONSTRUCTOR");
 }
 
 TrackersManager::~TrackersManager(void)
 {
-  for(std::map<std::string, kr_trackers_manager::Tracker *>::iterator it = tracker_map_.begin();
-      it != tracker_map_.end(); it++)
-  {
-    delete it->second;
-#if ROS_VERSION_MINIMUM(1, 8, 0)
-    try
-    {
-      tracker_loader_.unloadLibraryForClass(it->first);
-    }
-    catch(pluginlib::LibraryUnloadException &e)
-    {
-      NODELET_ERROR_STREAM("Could not unload library for the tracker " << it->first << ": " << e.what());
-    }
-#endif
-  }
 }
 
-void TrackersManager::onInit(void)
+LifecycleCallbackReturn TrackersManager::on_configure(const rclcpp_lifecycle::State &previous_state)
 {
-  ros::NodeHandle priv_nh(getPrivateNodeHandle());
+  (void)previous_state;
+  
+  RCLCPP_INFO(this->get_logger(), "Configuring TrackersManager and Trackers.");
 
-  XmlRpc::XmlRpcValue tracker_list;
-  priv_nh.getParam("trackers", tracker_list);
-  ROS_ASSERT(tracker_list.getType() == XmlRpc::XmlRpcValue::TypeArray);
-  for(int i = 0; i < tracker_list.size(); i++)
+  auto node = shared_from_this();
+  std::weak_ptr<rclcpp_lifecycle::LifecycleNode> weak_node = node;
+
+  this->declare_parameter<std::vector<std::string>>("trackers", {"LineTrackerDistance"});
+  std::vector<std::string> trackers_array;
+  this->get_parameter("trackers", trackers_array);
+
+  for(auto name: trackers_array)
   {
-    ROS_ASSERT(tracker_list[i].getType() == XmlRpc::XmlRpcValue::TypeString);
-    const std::string tracker_name = static_cast<const std::string>(tracker_list[i]);
     try
     {
-#if ROS_VERSION_MINIMUM(1, 8, 0)
-      kr_trackers_manager::Tracker *c = tracker_loader_.createUnmanagedInstance(tracker_name);
-#else
-      kr_trackers_manager::Tracker *c = tracker_loader_.createClassInstance(tracker_name);
-#endif
-      c->Initialize(priv_nh);
-      tracker_map_.insert(std::make_pair(tracker_name, c));
+      auto ptr = tracker_loader_.createSharedInstance(name);
+      ptr->Initialize(weak_node);
+      std::cout << "Loaded successfully\n";
+      tracker_map_.insert(std::make_pair(name, ptr));
     }
-    catch(pluginlib::LibraryLoadException &e)
+    catch (const pluginlib::LibraryLoadException& e)
     {
-      NODELET_ERROR_STREAM("Could not load library for the tracker " << tracker_name << ": " << e.what());
+      RCLCPP_ERROR(this->get_logger(), "Library Load Exception: %s", e.what());
     }
-    catch(pluginlib::CreateClassException &e)
+    catch (const pluginlib::CreateClassException& e)
     {
-      NODELET_ERROR_STREAM("Could not create an instance of the tracker " << tracker_name << ": " << e.what());
+      RCLCPP_ERROR(this->get_logger(), "Create Class Exception: %s", e.what());
     }
   }
 
-  pub_cmd_ = priv_nh.advertise<kr_mav_msgs::PositionCommand>("cmd", 10);
-  pub_status_ = priv_nh.advertise<kr_tracker_msgs::TrackerStatus>("status", 10);
+  pub_cmd_ = this->create_publisher<kr_mav_msgs::msg::PositionCommand>("~/cmd", 10);
+  pub_status_ = this->create_publisher<kr_tracker_msgs::msg::TrackerStatus>("~/status", 10);
 
-  sub_odom_ = priv_nh.subscribe("odom", 10, &TrackersManager::odom_callback, this, ros::TransportHints().tcpNoDelay());
+  // Setting QoS profile to get equivalent performance to ros::TransportHints().tcpNoDelay()
+  rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
+  auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 10), qos_profile);
+  sub_odom_ = this->create_subscription<nav_msgs::msg::Odometry>("~/odom", qos, std::bind(&TrackersManager::odom_callback, this, std::placeholders::_1));
 
-  srv_tracker_ = priv_nh.advertiseService("transition", &TrackersManager::transition_callback, this);
+  srv_tracker_ = this->create_service<kr_tracker_msgs::srv::Transition>("~/transition", std::bind(&TrackersManager::transition_callback, this, std::placeholders::_1, std::placeholders::_2));
+
+  return LifecycleCallbackReturn::SUCCESS;
 }
 
-void TrackersManager::odom_callback(const nav_msgs::Odometry::ConstPtr &msg)
+LifecycleCallbackReturn TrackersManager::on_activate(const rclcpp_lifecycle::State &previous_state)
 {
-  std::map<std::string, kr_trackers_manager::Tracker *>::iterator it;
+  RCLCPP_INFO(this->get_logger(), "Activating TrackersManager.");
+  rclcpp_lifecycle::LifecycleNode::on_activate(previous_state);
+  return LifecycleCallbackReturn::SUCCESS;
+}
+
+void TrackersManager::odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg)
+{
+  std::map<std::string, std::shared_ptr<kr_trackers_manager::Tracker>>::iterator it;
   for(it = tracker_map_.begin(); it != tracker_map_.end(); it++)
   {
     if(it->second == active_tracker_)
     {
       cmd_ = it->second->update(msg);
       if(cmd_ != NULL)
-        pub_cmd_.publish(cmd_);
+      {
+        // TODO: make cmd_ a unique pointer
+        pub_cmd_->publish(*cmd_);
+      }
 
-      kr_tracker_msgs::TrackerStatus::Ptr status_msg(new kr_tracker_msgs::TrackerStatus);
+      auto status_msg = std::make_unique<kr_tracker_msgs::msg::TrackerStatus>();
       status_msg->header.stamp = msg->header.stamp;
       status_msg->tracker = it->first;
       status_msg->status = it->second->status();
-      pub_status_.publish(status_msg);
+      pub_status_->publish(std::move(status_msg));
     }
     else
     {
@@ -114,31 +130,31 @@ void TrackersManager::odom_callback(const nav_msgs::Odometry::ConstPtr &msg)
   }
 }
 
-bool TrackersManager::transition_callback(kr_tracker_msgs::Transition::Request &req,
-                                          kr_tracker_msgs::Transition::Response &res)
+void TrackersManager::transition_callback(const kr_tracker_msgs::srv::Transition::Request::SharedPtr req, const kr_tracker_msgs::srv::Transition::Response::SharedPtr res)
 {
-  const std::map<std::string, kr_trackers_manager::Tracker *>::iterator it = tracker_map_.find(req.tracker);
+  const std::map<std::string, std::shared_ptr<kr_trackers_manager::Tracker>>::iterator it = tracker_map_.find(req->tracker);
   if(it == tracker_map_.end())
   {
-    res.success = false;
-    res.message = std::string("Cannot find tracker ") + req.tracker + std::string(", cannot transition");
-    NODELET_WARN_STREAM(res.message);
-    return true;
+    res->success = false;
+    res->message = std::string("Cannot find tracker ") + req->tracker + std::string(", cannot transition");
+    RCLCPP_WARN_STREAM(this->get_logger(), res->message);
+    return;
   }
   if(active_tracker_ == it->second)
   {
-    res.success = true;
-    res.message = std::string("Tracker ") + req.tracker + std::string(" already active");
-    NODELET_INFO_STREAM(res.message);
-    return true;
+    res->success = true;
+    res->message = std::string("Tracker ") + req->tracker + std::string(" already active");
+    RCLCPP_INFO_STREAM(this->get_logger(), res->message);
+    return;
   }
 
+  // TODO: change arguments of Activate function to take in a ConstSharedPtr
   if(!it->second->Activate(cmd_))
   {
-    res.success = false;
-    res.message = std::string("Failed to activate tracker ") + req.tracker + std::string(", cannot transition");
-    NODELET_WARN_STREAM(res.message);
-    return true;
+    res->success = true;
+    res->message = std::string("Failed to activate tracker ") + req->tracker + std::string(", cannot transition");
+    RCLCPP_INFO_STREAM(this->get_logger(), res->message);
+    return;
   }
 
   if(active_tracker_ != NULL)
@@ -147,10 +163,16 @@ bool TrackersManager::transition_callback(kr_tracker_msgs::Transition::Request &
   }
 
   active_tracker_ = it->second;
-  res.success = true;
-  res.message = std::string("Successfully activated tracker ") + req.tracker;
-  return true;
+  res->success = true;
+  res->message = std::string("Successfully activated tracker ") + req->tracker;
 }
 
-#include <pluginlib/class_list_macros.h>
-PLUGINLIB_EXPORT_CLASS(TrackersManager, nodelet::Nodelet);
+LifecycleCallbackReturn TrackersManager::on_shutdown(const rclcpp_lifecycle::State &previous_state)
+{
+  (void)previous_state;
+  RCLCPP_INFO(this->get_logger(), "Shutting down Trackers Manager");
+  return LifecycleCallbackReturn::SUCCESS;
+}
+
+#include "rclcpp_components/register_node_macro.hpp"
+RCLCPP_COMPONENTS_REGISTER_NODE(TrackersManager)
