@@ -1,22 +1,15 @@
 // kr_mav_manager
-#include <kr_mav_manager/manager.h>
+#include <kr_mav_manager/manager.hpp>
 
 // Standard C++
 #include <math.h>
 
-#include <string>
+#include <map>
 
-// ROS Related
-#include <actionlib/client/simple_action_client.h>
-#include <ros/ros.h>
-#include <std_msgs/Bool.h>
-#include <std_msgs/Empty.h>
-#include <std_msgs/UInt8.h>
-#include <tf/transform_datatypes.h>
-
-// kr_mav_control
-#include <kr_tracker_msgs/Transition.h>
-#include <kr_tracker_msgs/VelocityGoal.h>
+// ROS2 related
+// equivalent to #include <tf/transform_datatypes.h>
+#include "tf2/utils.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 namespace kr_mav_manager
 {
@@ -29,15 +22,16 @@ static const std::string circle_tracker_str("kr_trackers/CircleTracker");
 static const std::string lissajous_tracker_str("kr_trackers/LissajousTracker");
 static const std::string lissajous_adder_str("kr_trackers/LissajousAdder");
 
-MAVManager::MAVManager(std::string ns)
-    : nh_(ns),
-      priv_nh_("~"),
+using namespace std::placeholders;
+
+MAVManager::MAVManager()
+    : Node("manager"),
       active_tracker_(""),
       status_(INIT),
-      last_odom_t_(0.0),
-      last_imu_t_(0.0),
-      last_output_data_t_(0.0),
-      last_heartbeat_t_(0.0),
+      last_odom_t_(0, 0),
+      last_imu_t_(0, 0),
+      last_output_data_t_(0, 0),
+      last_heartbeat_t_(0, 0),
       mass_(-1.0),
       odom_q_(1.0, 0.0, 0.0, 0.0),
       imu_q_(1.0, 0.0, 0.0, 0.0),
@@ -45,128 +39,172 @@ MAVManager::MAVManager(std::string ns)
       need_imu_(false),
       need_output_data_(true),
       need_odom_(true),
-      use_attitude_safety_catch_(true),
-      line_tracker_distance_client_(nh_, "trackers_manager/line_tracker_distance/LineTracker", true),
-      line_tracker_min_jerk_client_(nh_, "trackers_manager/line_tracker_min_jerk/LineTracker", true),
-      circle_tracker_client_(nh_, "trackers_manager/circle_tracker/CircleTracker", true),
-      lissajous_tracker_client_(nh_, "trackers_manager/lissajous_tracker/LissajousTracker", true),
-      lissajous_adder_client_(nh_, "trackers_manager/lissajous_adder/LissajousAdder", true)
+      use_attitude_safety_catch_(true)
 {
-  // Action servers.
-  float server_wait_timeout;
-  priv_nh_.param("server_wait_timeout", server_wait_timeout, 0.5f);
+  // Declaring parameters
+  this->declare_parameter("server_wait_timeout", 0.5f);
+  this->declare_parameter("need_imu", rclcpp::PARAMETER_BOOL);
+  this->declare_parameter("need_output_data", rclcpp::PARAMETER_BOOL);
+  this->declare_parameter("use_attitude_safety_catch", rclcpp::PARAMETER_BOOL);
+  this->declare_parameter("max_attitude_angle", rclcpp::PARAMETER_DOUBLE);
+  this->declare_parameter("mass", rclcpp::PARAMETER_DOUBLE);
+  this->declare_parameter("odom_timeout", 0.1f);
+  this->declare_parameter("takeoff_height", 0.1);
 
-  if(!line_tracker_distance_client_.waitForServer(ros::Duration(server_wait_timeout)))
+  // Action Client
+  line_tracker_distance_client_ =
+      rclcpp_action::create_client<LineTracker>(this, "trackers_manager/line_tracker_distance/LineTracker");
+  line_tracker_min_jerk_client_ =
+      rclcpp_action::create_client<LineTracker>(this, "trackers_manager/line_tracker_min_jerk/LineTracker");
+  circle_tracker_client_ =
+      rclcpp_action::create_client<CircleTracker>(this, "trackers_manager/circle_tracker/CircleTracker");
+  lissajous_tracker_client_ =
+      rclcpp_action::create_client<LissajousTracker>(this, "trackers_manager/lissajous_tracker/LissajousTracker");
+  lissajous_adder_client_ =
+      rclcpp_action::create_client<LissajousAdder>(this, "trackers_manager/lissajous_adder/LissajousAdder");
+
+  float server_wait_timout;
+  server_wait_timout = this->get_parameter("server_wait_timeout").as_double();
+  auto server_wait_timeout_duration = std::chrono::duration<float>(server_wait_timout);
+
+  if(!line_tracker_distance_client_->wait_for_action_server(server_wait_timeout_duration))
   {
-    ROS_ERROR("LineTrackerDistance server not found.");
+    RCLCPP_ERROR(this->get_logger(), "LineTrackerDistance server not found.");
   }
 
-  if(!line_tracker_min_jerk_client_.waitForServer(ros::Duration(server_wait_timeout)))
+  if(!line_tracker_min_jerk_client_->wait_for_action_server(server_wait_timeout_duration))
   {
-    ROS_ERROR("LineTrackerMinJerk server not found.");
+    RCLCPP_ERROR(this->get_logger(), "LineTrackerMinJerk server not found.");
   }
 
-  // Optional trackers.
-  if(!circle_tracker_client_.waitForServer(ros::Duration(server_wait_timeout)))
+  // Optional Trackers
+  if(!circle_tracker_client_->wait_for_action_server(server_wait_timeout_duration))
   {
-    ROS_WARN("CircleTracker server not found.");
+    RCLCPP_WARN(this->get_logger(), "CircleTracker server not found.");
   }
 
-  if(!lissajous_tracker_client_.waitForServer(ros::Duration(server_wait_timeout)))
+  if(!lissajous_tracker_client_->wait_for_action_server(server_wait_timeout_duration))
   {
-    ROS_WARN("LissajousTracker server not found.");
+    RCLCPP_WARN(this->get_logger(), "LissajousTracker server not found.");
   }
 
-  if(!lissajous_adder_client_.waitForServer(ros::Duration(server_wait_timeout)))
+  if(!lissajous_adder_client_->wait_for_action_server(server_wait_timeout_duration))
   {
-    ROS_WARN("LissajousAdder server not found.");
+    RCLCPP_WARN(this->get_logger(), "LissajousAdder server not found.");
   }
 
-  pub_motors_ = nh_.advertise<std_msgs::Bool>("motors", 10);
-  pub_estop_ = nh_.advertise<std_msgs::Empty>("estop", 10);
-  pub_so3_command_ = nh_.advertise<kr_mav_msgs::SO3Command>("so3_cmd", 10);
-  pub_trpy_command_ = nh_.advertise<kr_mav_msgs::TRPYCommand>("trpy_cmd", 10);
-  pub_position_command_ = nh_.advertise<kr_mav_msgs::PositionCommand>("position_cmd", 10);
-  pub_status_ = priv_nh_.advertise<std_msgs::UInt8>("status", 10);
-  pub_goal_velocity_ = nh_.advertise<kr_tracker_msgs::VelocityGoal>("trackers_manager/velocity_tracker/goal", 10);
+  // Publishers
+  pub_motors_ = this->create_publisher<std_msgs::msg::Bool>("motors", 10);
+  pub_estop_ = this->create_publisher<std_msgs::msg::Empty>("estop", 10);
+  pub_so3_command_ = this->create_publisher<kr_mav_msgs::msg::SO3Command>("so3_cmd", 10);
+  pub_trpy_command_ = this->create_publisher<kr_mav_msgs::msg::TRPYCommand>("trpy_cmd", 10);
+  pub_position_command_ = this->create_publisher<kr_mav_msgs::msg::PositionCommand>("position_cmd", 10);
+  pub_status_ = this->create_publisher<std_msgs::msg::UInt8>("~/status", 10);
+  pub_goal_velocity_ =
+      this->create_publisher<kr_tracker_msgs::msg::VelocityGoal>("trackers_manager/velocity_tracker/goal", 10);
 
-  // pwm_command_pub_ = nh_ ...
+  // Setting QoS profile to get equivalent performance to ros::TransportHints().tcpNoDelay()
+  rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
+  auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 10), qos_profile);
 
   // Subscribers
-  odom_sub_ = nh_.subscribe("odom", 10, &MAVManager::odometry_cb, this, ros::TransportHints().tcpNoDelay());
-  heartbeat_sub_ = nh_.subscribe("heartbeat", 10, &MAVManager::heartbeat_cb, this, ros::TransportHints().tcpNoDelay());
-  tracker_status_sub_ = nh_.subscribe("trackers_manager/status", 10, &MAVManager::tracker_status_cb, this,
-                                      ros::TransportHints().tcpNoDelay());
+  odom_sub_ =
+      this->create_subscription<nav_msgs::msg::Odometry>("odom", qos, std::bind(&MAVManager::odometry_cb, this, _1));
+  heartbeat_sub_ =
+      this->create_subscription<std_msgs::msg::Empty>("heartbeat", qos, std::bind(&MAVManager::heartbeat_cb, this, _1));
+  tracker_status_sub_ = this->create_subscription<kr_tracker_msgs::msg::TrackerStatus>(
+      "trackers_manager/status", qos, std::bind(&MAVManager::tracker_status_cb, this, _1));
 
   // Services
-  srv_transition_ = nh_.serviceClient<kr_tracker_msgs::Transition>("trackers_manager/transition");
+  srv_transition_ = this->create_client<kr_tracker_msgs::srv::Transition>("trackers_manager/transition");
 
-  srv_transition_.waitForExistence();
+  srv_transition_->wait_for_service();
   if(!this->transition(null_tracker_str))
-    ROS_FATAL("Activation of NullTracker failed.");
+  {
+    RCLCPP_FATAL(this->get_logger(), "Activation of NullTracker failed.");
+  }
 
   // Load params after we are sure that we have stuff loaded
-  if(!priv_nh_.getParam("need_imu", need_imu_))
-    ROS_WARN("Couldn't find need_imu param");
+  if(!this->get_parameter("need_imu", need_imu_))
+  {
+    RCLCPP_WARN(this->get_logger(), "Couldn't find need_imu param");
+  }
   if(need_imu_)
-    imu_sub_ = nh_.subscribe("quad_decode_msg/imu", 10, &MAVManager::imu_cb, this);
+  {
+    imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>("quad_decode_msg/imu", 10,
+                                                                std::bind(&MAVManager::imu_cb, this, _1));
+  }
 
-  if(!priv_nh_.getParam("need_output_data", need_output_data_))
-    ROS_WARN("Couldn't find need_output_data param");
+  if(!this->get_parameter("need_output_data", need_output_data_))
+  {
+    RCLCPP_WARN(this->get_logger(), "Couldn't find need_output_data param");
+  }
   if(need_output_data_)
-    output_data_sub_ = nh_.subscribe("quad_decode_msg/output_data", 10, &MAVManager::output_data_cb, this);
+  {
+    output_data_sub_ = this->create_subscription<kr_mav_msgs::msg::OutputData>(
+        "quad_decode_msg/output_data", 10, std::bind(&MAVManager::output_data_cb, this, _1));
+  }
 
-  if(!priv_nh_.getParam("use_attitude_safety_catch", use_attitude_safety_catch_))
-    ROS_WARN("Couldn't find use_attitude_safety_catch param");
-
-  if(!priv_nh_.getParam("max_attitude_angle", max_attitude_angle_))
-    ROS_WARN("Couldn't find max_attitude_angle param");
+  if(!this->get_parameter("use_attitide_safety_catch", use_attitude_safety_catch_))
+  {
+    RCLCPP_WARN(this->get_logger(), "Couldn't find use_attitude_safety_catch param");
+  }
 
   double m;
-  if(!nh_.getParam("mass", m))
-    ROS_ERROR("MAV Manager requires mass to be set as a param.");
+  if(!this->get_parameter("mass", m))
+  {
+    RCLCPP_ERROR(this->get_logger(), "MAV Manager requires mass to be set as a param.");
+  }
   else if(this->set_mass(m))
-    ROS_INFO("MAVManager using mass = %2.2f.", mass_);
+  {
+    RCLCPP_INFO(this->get_logger(), "MAV Manager using mass = %2.2f.", mass_);
+  }
   else
-    ROS_ERROR("Mass failed to set. Perhaps mass <= 0?");
+  {
+    RCLCPP_ERROR(this->get_logger(), "Mass failed to set. Perhaps mass <= 0?");
+  }
 
-  priv_nh_.param("odom_timeout", odom_timeout_, 0.1f);
+  this->get_parameter("odom_timeout", odom_timeout_);
 
-  // Disable motors
   if(!this->set_motors(false))
-    ROS_ERROR("Could not disable motors");
+  {
+    RCLCPP_ERROR(this->get_logger(), "Could not disable motors");
+  }
 }
 
-void MAVManager::tracker_done_callback(const actionlib::SimpleClientGoalState &state,
-                                       const kr_tracker_msgs::LineTrackerResultConstPtr &result)
+void MAVManager::tracker_done_callback(const LineTrackerGoalHandle::WrappedResult &result)
 {
-  ROS_INFO("Goal (%2.2f, %2.2f, %2.2f, %2.2f) finished with state %s after %2.2f s. and %2.2f m.", result->x, result->y,
-           result->z, result->yaw, state.toString().c_str(), result->duration, result->length);
+  auto status = result.code;
+  RCLCPP_INFO(this->get_logger(),
+              "Goal (%2.2f, %2.2f, %2.2f, %2.2f) finished with state %s after %2.2f s. and %2.2f m.", result.result->x,
+              result.result->y, result.result->z, result.result->yaw, result_status[status].c_str(),
+              result.result->duration, result.result->length);
 }
 
-void MAVManager::circle_tracker_done_callback(const actionlib::SimpleClientGoalState &state,
-                                              const kr_tracker_msgs::CircleTrackerResultConstPtr &result)
+void MAVManager::circle_tracker_done_callback(const CircleTrackerGoalHandle::WrappedResult &result)
 {
-  ROS_INFO("Circle tracking completed after %2.2f seconds.", result->duration);
+  RCLCPP_INFO(this->get_logger(), "Circle tracking completed after %2.2f seconds", result.result->duration);
 }
 
-void MAVManager::lissajous_tracker_done_callback(const actionlib::SimpleClientGoalState &state,
-                                                 const kr_tracker_msgs::LissajousTrackerResultConstPtr &result)
+void MAVManager::lissajous_tracker_done_callback(const LissajousTrackerGoalHandle::WrappedResult &result)
 {
-  ROS_INFO("Lissajous tracking completed. Duration: %2.2f seconds, distance: %2.2f m, now located at (%2.2f, %2.2f, "
-           "%2.2f, %2.2f).",
-           result->duration, result->length, result->x, result->y, result->z, result->yaw);
+  RCLCPP_INFO(this->get_logger(),
+              "Lissajous tracking completed. Duration %2.2f seconds, distance: %2.2f m, now located at (%2.2f, %2.2f, "
+              "%2.2f, %2.2f).",
+              result.result->duration, result.result->length, result.result->x, result.result->y, result.result->z,
+              result.result->yaw);
 }
 
-void MAVManager::lissajous_adder_done_callback(const actionlib::SimpleClientGoalState &state,
-                                               const kr_tracker_msgs::LissajousAdderResultConstPtr &result)
+void MAVManager::lissajous_adder_done_callback(const LissajousAdderGoalHandle::WrappedResult &result)
 {
-  ROS_INFO("Lissajous tracking completed. Duration: %2.2f seconds, distance: %2.2f m, now located at (%2.2f, %2.2f, "
-           "%2.2f, %2.2f).",
-           result->duration, result->length, result->x, result->y, result->z, result->yaw);
+  RCLCPP_INFO(this->get_logger(),
+              "Lissajous tracking completed. Duration %2.2f seconds, distance: %2.2f m, now located at (%2.2f, %2.2f, "
+              "%2.2f, %2.2f).",
+              result.result->duration, result.result->length, result.result->x, result.result->y, result.result->z,
+              result.result->yaw);
 }
 
-void MAVManager::odometry_cb(const nav_msgs::Odometry::ConstPtr &msg)
+void MAVManager::odometry_cb(nav_msgs::msg::Odometry::ConstSharedPtr msg)
 {
   pos_(0) = msg->pose.pose.position.x;
   pos_(1) = msg->pose.pose.position.y;
@@ -179,10 +217,11 @@ void MAVManager::odometry_cb(const nav_msgs::Odometry::ConstPtr &msg)
   odom_q_ = Quat(msg->pose.pose.orientation.w, msg->pose.pose.orientation.x, msg->pose.pose.orientation.y,
                  msg->pose.pose.orientation.z);
 
-  yaw_ = tf::getYaw(msg->pose.pose.orientation);
+  yaw_ = tf2::getYaw(msg->pose.pose.orientation);
+
   yaw_dot_ = msg->twist.twist.angular.z;
 
-  last_odom_t_ = ros::Time::now();
+  last_odom_t_ = this->now();
 
   this->heartbeat();
 }
@@ -191,44 +230,47 @@ bool MAVManager::takeoff()
 {
   if(!this->have_recent_odom())
   {
-    ROS_WARN("Cannot takeoff without odometry.");
+    RCLCPP_WARN(this->get_logger(), "Cannot takeoff without odometry.");
     return false;
   }
 
   if(!this->setHome())
+  {
     return false;
+  }
 
   if(!this->motors() || status_ != IDLE)
   {
-    ROS_WARN("Cannot takeoff unless motors are idling.");
+    RCLCPP_WARN(this->get_logger(), "Cannot takeoff motors are idling.");
     return false;
   }
 
   // Only takeoff if currently under NULL_TRACKER
   if(active_tracker_.compare(null_tracker_str) != 0)
   {
-    ROS_WARN("The Null Tracker must be active before taking off");
+    RCLCPP_WARN(this->get_logger(), "The Null Tracker must be active before taking off");
     return false;
   }
 
   // Read takeoff height
   double takeoff_height;
-  priv_nh_.param("takeoff_height", takeoff_height, 0.1);
+  takeoff_height = this->get_parameter("takeoff_height").as_double();
   takeoff_height_ = takeoff_height;
 
   if(takeoff_height_ > 3.0f)
   {
-    ROS_ERROR("Takeoff Height is Dangerously High");
+    RCLCPP_ERROR(this->get_logger(), "Takeoff Height is Dangerously High");
     return false;
   }
 
-  ROS_INFO("Initiating launch sequence...");
+  RCLCPP_INFO(this->get_logger(), "Initiating launch sequence...");
 
-  kr_tracker_msgs::LineTrackerGoal goal;
+  auto goal = LineTracker::Goal();
   goal.z = takeoff_height_;
   goal.relative = true;
-  line_tracker_distance_client_.sendGoal(goal, boost::bind(&MAVManager::tracker_done_callback, this, _1, _2),
-                                         ClientType::SimpleActiveCallback(), ClientType::SimpleFeedbackCallback());
+  auto options = rclcpp_action::Client<LineTracker>::SendGoalOptions();
+  options.result_callback = std::bind(&MAVManager::tracker_done_callback, this, _1);
+  line_tracker_distance_client_->async_send_goal(goal, options);
 
   if(this->transition(line_tracker_distance))
   {
@@ -243,13 +285,13 @@ bool MAVManager::set_mass(float m)
 {
   if(m > 0)
   {
-    // TODO: This should update the mass in the controller and everywhere else that is necessary.
+    // TODO: This should update the mass in the controller and everywhere else that is necessary
     mass_ = m;
     return true;
   }
   else
   {
-    ROS_ERROR("Mass must be > 0");
+    RCLCPP_ERROR(this->get_logger(), "Mass must be > 0");
     return false;
   }
 }
@@ -261,11 +303,10 @@ bool MAVManager::setHome()
     home_ = pos_;
     home_yaw_ = yaw_;
     home_set_ = true;
-
     return true;
   }
   else
-    ROS_WARN("Cannot set home unless current pose is known.");
+    RCLCPP_WARN(this->get_logger(), "Cannot set home unless current pose is known.");
 
   return false;
 }
@@ -276,7 +317,7 @@ bool MAVManager::goHome()
     return this->goTo(home_ + Vec3(0, 0, 0.15), home_yaw_);
   else
   {
-    ROS_WARN("Home not set. Cannot go home.");
+    RCLCPP_WARN(this->get_logger(), "Home not set. Cannot go home.");
     return false;
   }
 }
@@ -285,17 +326,18 @@ bool MAVManager::land()
 {
   if(!this->motors() || status_ != FLYING)
   {
-    ROS_WARN("Not landing since the robot is not already flying.");
+    RCLCPP_WARN(this->get_logger(), "Not landing since the robot is not already flying.");
     return false;
   }
 
-  kr_tracker_msgs::LineTrackerGoal goal;
+  auto goal = LineTracker::Goal();
   goal.x = pos_(0);
   goal.y = pos_(1);
   goal.z = home_(2);
-  std::cout << " landing at " << goal.x << " " << goal.y << " " << goal.z << "\n";
-  line_tracker_distance_client_.sendGoal(goal, boost::bind(&MAVManager::tracker_done_callback, this, _1, _2),
-                                         ClientType::SimpleActiveCallback(), ClientType::SimpleFeedbackCallback());
+  std::cout << " landing at " << goal.x << " " << goal.y << " " << goal.z << std::endl;
+  auto options = rclcpp_action::Client<LineTracker>::SendGoalOptions();
+  options.result_callback = std::bind(&MAVManager::tracker_done_callback, this, _1);
+  line_tracker_distance_client_->async_send_goal(goal, options);
 
   return this->transition(line_tracker_distance);
 }
@@ -304,11 +346,11 @@ bool MAVManager::goTo(float x, float y, float z, float yaw, float v_des, float a
 {
   if(!this->motors() || status_ != FLYING)
   {
-    ROS_WARN("The robot must be flying before using the goTo method.");
+    RCLCPP_WARN(this->get_logger(), "The robot must be flying before using the goTo method.");
     return false;
   }
 
-  kr_tracker_msgs::LineTrackerGoal goal;
+  auto goal = LineTracker::Goal();
   goal.x = x;
   goal.y = y;
 
@@ -325,16 +367,18 @@ bool MAVManager::goTo(float x, float y, float z, float yaw, float v_des, float a
   goal.v_des = v_des;
   goal.a_des = a_des;
 
-  line_tracker_min_jerk_client_.sendGoal(goal, boost::bind(&MAVManager::tracker_done_callback, this, _1, _2),
-                                         ClientType::SimpleActiveCallback(), ClientType::SimpleFeedbackCallback());
+  auto options = rclcpp_action::Client<LineTracker>::SendGoalOptions();
+  options.result_callback = std::bind(&MAVManager::tracker_done_callback, this, _1);
+
+  line_tracker_min_jerk_client_->async_send_goal(goal, options);
 
   return this->transition(line_tracker_min_jerk);
 }
 
 bool MAVManager::goToTimed(float x, float y, float z, float yaw, float v_des, float a_des, bool relative,
-                           ros::Duration duration, ros::Time t_start)
+                           rclcpp::Duration duration, rclcpp::Time t_start)
 {
-  kr_tracker_msgs::LineTrackerGoal goal;
+  auto goal = LineTracker::Goal();
   goal.x = x;
   goal.y = y;
 
@@ -353,10 +397,13 @@ bool MAVManager::goToTimed(float x, float y, float z, float yaw, float v_des, fl
   goal.v_des = v_des;
   goal.a_des = a_des;
 
-  line_tracker_min_jerk_client_.sendGoal(goal, boost::bind(&MAVManager::tracker_done_callback, this, _1, _2),
-                                         ClientType::SimpleActiveCallback(), ClientType::SimpleFeedbackCallback());
-  ROS_INFO("Going to {%2.2f, %2.2f, %2.2f, %2.2f}%s with duration %2.2f", x, y, z, yaw,
-           (relative ? " relative to the current position." : ""), duration.toSec());
+  auto options = rclcpp_action::Client<LineTracker>::SendGoalOptions();
+  options.result_callback = std::bind(&MAVManager::tracker_done_callback, this, _1);
+
+  line_tracker_min_jerk_client_->async_send_goal(goal, options);
+
+  RCLCPP_INFO(this->get_logger(), "Going to {%2.2f, %2.2f, %2.2f, %2.2f}%s with duration %2.2f", x, y, z, yaw,
+              (relative ? " relative to the current position." : ""), duration.seconds());
 
   return this->transition(line_tracker_min_jerk);
 }
@@ -365,14 +412,17 @@ bool MAVManager::goTo(Vec4 xyz_yaw, Vec2 v_and_a_des)
 {
   return this->goTo(xyz_yaw(0), xyz_yaw(1), xyz_yaw(2), xyz_yaw(3), v_and_a_des(0), v_and_a_des(1));
 }
+
 bool MAVManager::goTo(Vec3 xyz, float yaw, Vec2 v_and_a_des)
 {
   return this->goTo(xyz(0), xyz(1), xyz(2), yaw, v_and_a_des(0), v_and_a_des(1));
 }
+
 bool MAVManager::goTo(Vec3 xyz, Vec2 v_and_a_des)
 {
   return this->goTo(xyz(0), xyz(1), xyz(2), yaw_, v_and_a_des(0), v_and_a_des(1));
 }
+
 bool MAVManager::goToYaw(float yaw)
 {
   return this->goTo(pos_(0), pos_(1), pos_(2), yaw);
@@ -382,18 +432,20 @@ bool MAVManager::circle(float Ax, float Ay, float T, float duration)
 {
   if(!this->motors() || status_ != FLYING)
   {
-    ROS_WARN("The robot must be flying before using the circle method.");
+    RCLCPP_WARN(this->get_logger(), "The robot must be flying before using the circle method.");
     return false;
   }
 
-  kr_tracker_msgs::CircleTrackerGoal goal;
-  goal.Ax = Ax;
-  goal.Ay = Ay;
-  goal.T = T;
+  auto goal = CircleTracker::Goal();
+  goal.ax = Ax;
+  goal.ay = Ay;
+  goal.t = T;
   goal.duration = duration;
 
-  circle_tracker_client_.sendGoal(goal, boost::bind(&MAVManager::circle_tracker_done_callback, this, _1, _2),
-                                  CircleClientType::SimpleActiveCallback(), CircleClientType::SimpleFeedbackCallback());
+  auto options = rclcpp_action::Client<CircleTracker>::SendGoalOptions();
+  options.result_callback = std::bind(&MAVManager::circle_tracker_done_callback, this, _1);
+
+  circle_tracker_client_->async_send_goal(goal, options);
 
   return this->transition(circle_tracker_str);
 }
@@ -404,11 +456,11 @@ bool MAVManager::lissajous(float x_amp, float y_amp, float z_amp, float yaw_amp,
 {
   if(!this->motors() || status_ != FLYING)
   {
-    ROS_WARN("The robot must be flying to execute a Lissajous.");
+    RCLCPP_WARN(this->get_logger(), "The robot must be flying to execute Lissajous");
     return false;
   }
 
-  kr_tracker_msgs::LissajousTrackerGoal goal;
+  auto goal = LissajousTracker::Goal();
   goal.x_amp = x_amp;
   goal.y_amp = y_amp;
   goal.z_amp = z_amp;
@@ -421,9 +473,10 @@ bool MAVManager::lissajous(float x_amp, float y_amp, float z_amp, float yaw_amp,
   goal.num_cycles = num_cycles;
   goal.ramp_time = ramp_time;
 
-  lissajous_tracker_client_.sendGoal(goal, boost::bind(&MAVManager::lissajous_tracker_done_callback, this, _1, _2),
-                                     LissajousClientType::SimpleActiveCallback(),
-                                     LissajousClientType::SimpleFeedbackCallback());
+  auto options = rclcpp_action::Client<LissajousTracker>::SendGoalOptions();
+  options.result_callback = std::bind(&MAVManager::lissajous_tracker_done_callback, this, _1);
+
+  lissajous_tracker_client_->async_send_goal(goal, options);
 
   return this->transition(lissajous_tracker_str);
 }
@@ -434,11 +487,11 @@ bool MAVManager::compound_lissajous(float x_amp[2], float y_amp[2], float z_amp[
 {
   if(!this->motors() || status_ != FLYING)
   {
-    ROS_WARN("The robot must be flying to execute a Lissajous.");
+    RCLCPP_WARN(this->get_logger(), "The robot must be flying to execute Lissajous.");
     return false;
   }
 
-  kr_tracker_msgs::LissajousAdderGoal goal;
+  auto goal = LissajousAdder::Goal();
   goal.x_amp[0] = x_amp[0];
   goal.x_amp[1] = x_amp[1];
   goal.y_amp[0] = y_amp[0];
@@ -462,33 +515,35 @@ bool MAVManager::compound_lissajous(float x_amp[2], float y_amp[2], float z_amp[
   goal.ramp_time[0] = ramp_time[0];
   goal.ramp_time[1] = ramp_time[1];
 
-  lissajous_adder_client_.sendGoal(goal, boost::bind(&MAVManager::lissajous_adder_done_callback, this, _1, _2),
-                                   CompoundLissajousClientType::SimpleActiveCallback(),
-                                   CompoundLissajousClientType::SimpleFeedbackCallback());
+  auto options = rclcpp_action::Client<LissajousAdder>::SendGoalOptions();
+  options.result_callback = std::bind(&MAVManager::lissajous_adder_done_callback, this, _1);
+
+  lissajous_adder_client_->async_send_goal(goal, options);
 
   return this->transition(lissajous_adder_str);
 }
 
-// World Velocity commands
-bool MAVManager::setDesVelInWorldFrame(float x, float y, float z, float yaw, bool use_position_feedback)
+// World Velocity Commands
+bool MAVManager::setDesVelInWorldFrame(float x, float y, float z, float yaw, bool use_positio_feedback)
 {
   if(!this->motors() || status_ != FLYING)
   {
-    ROS_WARN("The robot must be flying with motors on before setting a desired velocity.");
+    RCLCPP_WARN(this->get_logger(), "The robot must be flying with motors on before setting desired velocity.");
     return false;
   }
 
-  kr_tracker_msgs::VelocityGoal goal;
-  goal.header.stamp = ros::Time::now();
+  auto goal = kr_tracker_msgs::msg::VelocityGoal();
+  goal.header.stamp = this->now();
   goal.vx = x;
   goal.vy = y;
   goal.vz = z;
   goal.vyaw = yaw;
-  goal.use_position_gains = use_position_feedback;
+  goal.use_position_gains = use_positio_feedback;
 
-  pub_goal_velocity_.publish(goal);
+  pub_goal_velocity_->publish(goal);
 
-  ROS_INFO("Desired World velocity: (%1.4f, %1.4f, %1.4f, %1.4f)", goal.vx, goal.vy, goal.vz, goal.vyaw);
+  RCLCPP_INFO(this->get_logger(), "Desired World velocity: (%1.4f, %1.4f, %1.4f, %1.4f)", goal.vx, goal.vy, goal.vz,
+              goal.vyaw);
 
   // Since this could be called quite often,
   // only try to transition if it is not the active tracker.
@@ -500,7 +555,7 @@ bool MAVManager::setDesVelInWorldFrame(float x, float y, float z, float yaw, boo
   return true;
 }
 
-// Body Velocity commands
+// Body Velocity Commands
 bool MAVManager::setDesVelInBodyFrame(float x, float y, float z, float yaw, bool use_position_feedback)
 {
   Vec3 vel(x, y, z);
@@ -508,10 +563,10 @@ bool MAVManager::setDesVelInBodyFrame(float x, float y, float z, float yaw, bool
   return this->setDesVelInWorldFrame(vel(0), vel(1), vel(2), yaw, use_position_feedback);
 }
 
-bool MAVManager::setPositionCommand(const kr_mav_msgs::PositionCommand &msg)
+bool MAVManager::setPositionCommand(const kr_mav_msgs::msg::PositionCommand &msg)
 {
-  // TODO: Need to keep publishing a position command if there is no update.
-  // Otherwise, no so3_command will be published.
+  // TODO: Need to keep publishing a position command if there is no update
+  // Otherwise, no so3_command will be published
 
   if(this->motors() && status_ != ESTOP)
   {
@@ -523,23 +578,24 @@ bool MAVManager::setPositionCommand(const kr_mav_msgs::PositionCommand &msg)
       flag = this->transition(null_tracker_str);
 
     if(flag)
-      pub_position_command_.publish(msg);
+      pub_position_command_->publish(msg);
 
     return flag;
   }
   else
   {
-    ROS_WARN("Refusing to set PositionCommand since motors are off or robot is not flying.");
+    RCLCPP_WARN(this->get_logger(), "Refusing to set PositionCommand since motors are off or the robot is not flying.");
     return false;
   }
 }
 
-bool MAVManager::setSO3Command(const kr_mav_msgs::SO3Command &msg)
+bool MAVManager::setSO3Command(const kr_mav_msgs::msg::SO3Command &msg)
 {
   // Note: To enable motors, the motors method must be used
   if(!this->motors())
   {
-    ROS_WARN("Refusing to publish an SO3Command until motors have been enabled using the motors method.");
+    RCLCPP_WARN(this->get_logger(),
+                "Refusing to publish an SO3Command until motors have been enabled using the motors method.");
     return false;
   }
 
@@ -550,17 +606,18 @@ bool MAVManager::setSO3Command(const kr_mav_msgs::SO3Command &msg)
     flag = this->transition(null_tracker_str);
 
   if(flag)
-    pub_so3_command_.publish(msg);
+    pub_so3_command_->publish(msg);
 
   return flag;
 }
 
-bool MAVManager::setTRPYCommand(const kr_mav_msgs::TRPYCommand &msg)
+bool MAVManager::setTRPYCommand(const kr_mav_msgs::msg::TRPYCommand &msg)
 {
   // Note: To enable motors, the motors method must be used
   if(!this->motors())
   {
-    ROS_WARN("Refusing to publish an SO3Command until motors have been enabled using the motors method.");
+    RCLCPP_WARN(this->get_logger(),
+                "Refusing to publish an SO3Command until motors have been enabled using the motors method.");
     return false;
   }
 
@@ -571,7 +628,7 @@ bool MAVManager::setTRPYCommand(const kr_mav_msgs::TRPYCommand &msg)
     flag = this->transition(null_tracker_str);
 
   if(flag)
-    pub_trpy_command_.publish(msg);
+    pub_trpy_command_->publish(msg);
 
   return flag;
 }
@@ -596,39 +653,40 @@ bool MAVManager::set_motors(bool motors)
   // off, continue anyway.
   if(motors && !null_tkr)
   {
-    ROS_WARN("Could not transition to null_tracker before starting motors");
+    RCLCPP_WARN(this->get_logger(), "Could not transition to null_tracker before starting motors");
     return false;
   }
 
-  // Enable/Disable motors
+  // Enable/Diable motors
   if(motors)
-    ROS_INFO("Motors starting...");
+    RCLCPP_INFO(this->get_logger(), "Motors starting...");
   else
-    ROS_INFO("Motors stopping...");
+    RCLCPP_INFO(this->get_logger(), "Motors stopping...");
 
-  std_msgs::Bool motors_cmd;
+  auto motors_cmd = std_msgs::msg::Bool();
   motors_cmd.data = motors;
-  pub_motors_.publish(motors_cmd);
+  pub_motors_->publish(motors_cmd);
 
   // Publish a couple so3_commands to ensure motors are or are not spinning
-  kr_mav_msgs::SO3Command so3_cmd;
-  so3_cmd.header.stamp = ros::Time::now();
+  auto so3_cmd = kr_mav_msgs::msg::SO3Command();
+  so3_cmd.header.stamp = this->now();
   so3_cmd.force.z = FLT_MIN;
   so3_cmd.orientation.w = 1.0;
   so3_cmd.aux.enable_motors = motors;
 
-  kr_mav_msgs::TRPYCommand trpy_cmd;
+  auto trpy_cmd = kr_mav_msgs::msg::TRPYCommand();
   trpy_cmd.thrust = FLT_MIN;
   trpy_cmd.aux.enable_motors = motors;
 
   // Queue a few to make sure the signal gets through.
   // Also, the crazyflie interface throttles commands to 30 Hz, so this needs
-  // to have a sufficent duration.
+  // to have sufficient duration.
+  rclcpp::Rate loop_rate(100.0);
   for(int i = 0; i < 10; i++)
   {
-    pub_so3_command_.publish(so3_cmd);
-    pub_trpy_command_.publish(trpy_cmd);
-    ros::Duration(1.0 / 100.0).sleep();
+    pub_so3_command_->publish(so3_cmd);
+    pub_trpy_command_->publish(trpy_cmd);
+    loop_rate.sleep();
   }
 
   motors_ = motors;
@@ -636,19 +694,19 @@ bool MAVManager::set_motors(bool motors)
   return true;
 }
 
-void MAVManager::imu_cb(const sensor_msgs::Imu::ConstPtr &msg)
+void MAVManager::imu_cb(sensor_msgs::msg::Imu::ConstSharedPtr msg)
 {
-  last_imu_t_ = ros::Time::now();
+  last_imu_t_ = this->now();
 
   imu_q_ = Quat(msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
 
   this->heartbeat();
 }
 
-void MAVManager::output_data_cb(const kr_mav_msgs::OutputData::ConstPtr &msg)
+void MAVManager::output_data_cb(kr_mav_msgs::msg::OutputData::ConstSharedPtr msg)
 {
-  last_output_data_t_ = ros::Time::now();
-  last_imu_t_ = ros::Time::now();
+  last_output_data_t_ = this->now();
+  last_imu_t_ = this->now();
 
   imu_q_ = Quat(msg->orientation.w, msg->orientation.x, msg->orientation.y, msg->orientation.z);
 
@@ -664,13 +722,14 @@ void MAVManager::output_data_cb(const kr_mav_msgs::OutputData::ConstPtr &msg)
   this->heartbeat();
 }
 
-void MAVManager::tracker_status_cb(const kr_tracker_msgs::TrackerStatus::ConstPtr &msg)
+void MAVManager::tracker_status_cb(kr_tracker_msgs::msg::TrackerStatus::ConstSharedPtr msg)
 {
   active_tracker_ = msg->tracker;
 }
 
-void MAVManager::heartbeat_cb(const std_msgs::Empty::ConstPtr &msg)
+void MAVManager::heartbeat_cb(std_msgs::msg::Empty::ConstSharedPtr msg)
 {
+  (void)msg;
   this->heartbeat();
 }
 
@@ -680,29 +739,29 @@ void MAVManager::heartbeat()
   const float freq = 10;  // Hz
 
   // Only need to do monitoring at the specified frequency
-  ros::Time t = ros::Time::now();
-  float dt = (t - last_heartbeat_t_).toSec();
+  rclcpp::Time t = this->now();
+  float dt = (t - last_heartbeat_t_).seconds();
   if(dt < 1 / freq)
     return;
   else
     last_heartbeat_t_ = t;
 
   // Publish the status
-  std_msgs::UInt8 status_msg;
+  auto status_msg = std_msgs::msg::UInt8();
   status_msg.data = status_;
-  pub_status_.publish(status_msg);
+  pub_status_->publish(status_msg);
 
   // Checking for odom
   if(this->motors() && need_odom_ && !this->have_recent_odom())
   {
-    ROS_WARN("No recent odometry!");
+    RCLCPP_WARN(this->get_logger(), "No recent odometry!");
     this->eland();
   }
 
   // Checking for imu
   if(this->motors() && need_imu_ && !this->have_recent_imu())
   {
-    ROS_WARN("No recent imu!");
+    RCLCPP_WARN(this->get_logger(), "No recent imu!");
     this->eland();
   }
 
@@ -712,22 +771,22 @@ void MAVManager::heartbeat()
     // position commands. Maybe put a timeout, but it could be dangerous? Maybe
     // require a call to hover before exiting a safety catch mode?
 
-    // Convert quaterions to tf so we can compute Euler angles, etc.
-    tf::Quaternion imu_q(imu_q_.x(), imu_q_.y(), imu_q_.z(), imu_q_.w());
-    tf::Quaternion odom_q(odom_q_.x(), odom_q_.y(), odom_q_.z(), odom_q_.w());
+    // Convert quaternions to tf so we can compute Euler angles, etc
+    tf2::Quaternion imu_q(imu_q_.x(), imu_q_.y(), imu_q_.z(), imu_q_.w());
+    tf2::Quaternion odom_q(odom_q_.x(), odom_q_.y(), odom_q_.z(), odom_q_.w());
 
-    // Determine a geodesic angle from hover at the same yaw
+    // determine a geodesic angle from hover at the same yaw
     double yaw, pitch, roll;
-    tf::Matrix3x3 R;
+    tf2::Matrix3x3 R;
 
     // TODO: Don't check mocap odom if we have imu feedback
 
     // If we don't have IMU feedback, imu_q_ will be the identity rotation
-    tf::Matrix3x3(imu_q).getEulerYPR(yaw, pitch, roll);
+    tf2::Matrix3x3(imu_q).getEulerYPR(yaw, pitch, roll);
     R.setEulerYPR(0, pitch, roll);
     float imu_geodesic = std::fabs(std::acos(0.5 * (R[0][0] + R[1][1] + R[2][2] - 1)));
 
-    tf::Matrix3x3(odom_q).getEulerYPR(yaw, pitch, roll);
+    tf2::Matrix3x3(odom_q).getEulerYPR(yaw, pitch, roll);
     R.setEulerYPR(0, pitch, roll);
     float odom_geodesic = std::fabs(std::acos(0.5 * (R[0][0] + R[1][1] + R[2][2] - 1)));
 
@@ -743,8 +802,9 @@ void MAVManager::heartbeat()
     {
       // Reset the timer so we don't keep calling ehover
       attitude_limit_timer = 0;
-      ROS_WARN("Attitude exceeded threshold of %2.2f deg! Geodesic = %2.2f deg. Entering emergency hover.",
-               max_attitude_angle_ * 180.0f / M_PI, geodesic * 180.0f / M_PI);
+      RCLCPP_WARN(this->get_logger(),
+                  "Attitude exceeded threshold of %2.2f deg! Geodesic = %2.2f deg. Entering emergency hover.",
+                  max_attitude_angle_ * 180.0f / M_PI, geodesic * 180.f / M_PI);
       this->ehover();
     }
   }
@@ -752,7 +812,10 @@ void MAVManager::heartbeat()
   if(this->have_recent_output_data())
   {
     if(voltage_ < 10.0f)  // Note: Asctec firmware uses 9V
-      ROS_WARN_THROTTLE(10, "Battery voltage = %2.2f V", voltage_);
+    {
+      RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 10000, "Battery voltage = %2.2f V",
+                           voltage_);  // time in milliseconds
+    }
   }
 
   // TODO: Incorporate bounding box constraints. Something along the lines of the following.
@@ -783,9 +846,9 @@ bool MAVManager::eland()
   // left the ground, we don't want them to spin up faster.
   if(this->motors() && (status_ == FLYING || status_ == ELAND))
   {
-    ROS_WARN("Emergency Land");
+    RCLCPP_WARN(this->get_logger(), "Emergency Land");
 
-    kr_mav_msgs::PositionCommand goal;
+    auto goal = kr_mav_msgs::msg::PositionCommand();
     goal.acceleration.z = -0.45f;
     goal.yaw = yaw_;
 
@@ -803,9 +866,9 @@ bool MAVManager::eland()
 
 bool MAVManager::estop()
 {
-  ROS_WARN("E-STOP");
-  std_msgs::Empty estop_cmd;
-  pub_estop_.publish(estop_cmd);
+  RCLCPP_WARN(this->get_logger(), "E-STOP");
+  auto estop_cmd = std_msgs::msg::Empty();
+  pub_estop_->publish(estop_cmd);
 
   // Disarm motors
   if(this->set_motors(false))
@@ -830,24 +893,24 @@ bool MAVManager::hover()
     // Acceleration should be opposite the velocity component
     const Vec3 acc = -dir * a_des;
 
-    // acc(3) = - copysign(yaw_a_des, yaw_dot_);
+    // acc(3) = -copysign(yaw_a_des, yaw_dot_);
 
-    // vf = vo + a t   ->    t = (vf - vo) / a
+    // vf = vo + at -> t = (vf - vo) / a
     const float t = v_norm / a_des;
     // float t_yaw = - yaw_dot_ / yaw_a_des;
 
     // xf = xo + vo * t + 1/2 * a * t^2
     Vec4 goal(pos_(0) + vel_(0) * t + 0.5f * acc(0) * t * t, pos_(1) + vel_(1) * t + 0.5f * acc(1) * t * t,
               pos_(2) + vel_(2) * t + 0.5f * acc(2) * t * t,
-              yaw_);  //    + yaw_dot_ * t_yaw + 0.5 * yaw_a_des * t_yaw * t_yaw);
+              yaw_);  // + yaw_dot_ * t_yaw + 0.5 * yaw_a_des * t_yaw * t_yaw);
 
     Vec2 v_and_a_des(std::sqrt(vel_.dot(vel_)), a_des);
 
-    ROS_DEBUG("Coasting to hover...");
+    RCLCPP_DEBUG(this->get_logger(), "Coasting to hover...");
     return this->goTo(goal, v_and_a_des);
   }
 
-  ROS_DEBUG("Hovering in place...");
+  RCLCPP_DEBUG(this->get_logger(), "Hovering in place...");
   return this->goTo(pos_(0), pos_(1), pos_(2), yaw_);
 }
 
@@ -855,16 +918,19 @@ bool MAVManager::ehover()
 {
   if(!this->motors() || status_ != FLYING)
   {
-    ROS_WARN("Will not call emergency hover unless the robot is already flying.");
+    RCLCPP_WARN(this->get_logger(), "Will not call emergency hover unless the robot is already flying");
     return false;
   }
 
-  kr_tracker_msgs::LineTrackerGoal goal;
+  auto goal = LineTracker::Goal();
   goal.x = pos_(0);
   goal.y = pos_(1);
   goal.z = pos_(2);
-  line_tracker_distance_client_.sendGoal(goal, boost::bind(&MAVManager::tracker_done_callback, this, _1, _2),
-                                         ClientType::SimpleActiveCallback(), ClientType::SimpleFeedbackCallback());
+
+  auto options = rclcpp_action::Client<LineTracker>::SendGoalOptions();
+  options.result_callback = std::bind(&MAVManager::tracker_done_callback, this, _1);
+
+  line_tracker_distance_client_->async_send_goal(goal, options);
 
   return this->transition(line_tracker_distance);
 }
@@ -872,14 +938,21 @@ bool MAVManager::ehover()
 bool MAVManager::transition(const std::string &tracker_str)
 {
   // usleep(100000);
-  kr_tracker_msgs::Transition transition_cmd;
-  transition_cmd.request.tracker = tracker_str;
 
-  if(srv_transition_.call(transition_cmd) && transition_cmd.response.success)
+  auto transition_cmd = std::make_shared<kr_tracker_msgs::srv::Transition::Request>();
+  transition_cmd->tracker = tracker_str;
+
+  auto future = srv_transition_->async_send_request(transition_cmd);
+
+  if(rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) == rclcpp::FutureReturnCode::SUCCESS)
   {
-    active_tracker_ = tracker_str;
-    ROS_INFO("Current tracker: %s", tracker_str.c_str());
-    return true;
+    auto response = future.get();
+    if(response->success)
+    {
+      active_tracker_ = tracker_str;
+      RCLCPP_INFO(this->get_logger(), "Current tracker: %s", tracker_str.c_str());
+      return true;
+    }
   }
 
   return false;
@@ -887,16 +960,17 @@ bool MAVManager::transition(const std::string &tracker_str)
 
 bool MAVManager::have_recent_odom()
 {
-  return (ros::Time::now() - last_odom_t_).toSec() < odom_timeout_;
+  return (this->now() - last_odom_t_).seconds() < odom_timeout_;
 }
 
 bool MAVManager::have_recent_imu()
 {
-  return (ros::Time::now() - last_imu_t_).toSec() < 0.1;
+  return (this->now() - last_imu_t_).seconds() < 0.1;
 }
 
 bool MAVManager::have_recent_output_data()
 {
-  return (ros::Time::now() - last_output_data_t_).toSec() < 0.1;
+  return (this->now() - last_output_data_t_).seconds() < 0.1;
 }
+
 }  // namespace kr_mav_manager
