@@ -4,6 +4,10 @@
 
 #include <kr_sbus_interface/channel_mapping.h>
 
+#include <nav_msgs/Odometry.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2/LinearMath/Matrix3x3.h>
+
 namespace sbus_bridge {
 
 SBusBridge::SBusBridge(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
@@ -27,9 +31,7 @@ SBusBridge::SBusBridge(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
     return;
   }
 
-  if (disable_thrust_mapping_) {
-    ROS_WARN("[%s] Thrust mapping disabled!", pnh_.getNamespace().c_str());
-  }
+  sbus_cmd_pub_ = nh_.advertise<nav_msgs::Odometry>("sbus_cmd", 1);
 
 //   // Publishers
 //   low_level_feedback_pub_ =
@@ -123,20 +125,20 @@ void SBusBridge::watchdogThread() {
       setBridgeState(BridgeState::AUTONOMOUS_FLIGHT);
     }
 
-    if (bridge_state_ == BridgeState::ARMING ||
-        bridge_state_ == BridgeState::AUTONOMOUS_FLIGHT) {
-      if (time_now - time_last_active_control_command_received_ >
-          ros::Duration(control_command_timeout_)) {
-        // When switching the bridge state to off, our watchdog ensures that a
-        // disarming off message is repeated.
-        ROS_INFO("No active control command received, setting bridge state to OFF");
-        setBridgeState(BridgeState::OFF);
-        // Note: Control could theoretically still be taken over by RC but if
-        // this happened in flight it might require super human reaction since
-        // in this case the quad can not be armed with non zero throttle by
-        // the remote.
-      }
-    }
+    // if (bridge_state_ == BridgeState::ARMING ||
+    //     bridge_state_ == BridgeState::AUTONOMOUS_FLIGHT) {
+    //   if (time_now - time_last_active_control_command_received_ >
+    //       ros::Duration(control_command_timeout_)) {
+    //     // When switching the bridge state to off, our watchdog ensures that a
+    //     // disarming off message is repeated.
+    //     ROS_INFO("No active control command received, setting bridge state to OFF");
+    //     setBridgeState(BridgeState::OFF);
+    //     // Note: Control could theoretically still be taken over by RC but if
+    //     // this happened in flight it might require super human reaction since
+    //     // in this case the quad can not be armed with non zero throttle by
+    //     // the remote.
+    //   }
+    // }
 
     if (bridge_state_ == BridgeState::OFF) {
       // Send off message that disarms the vehicle
@@ -171,6 +173,16 @@ void SBusBridge::handleReceivedSbusMessage(const SBusMsg& received_sbus_msg)
     std::lock_guard<std::mutex> main_lock(main_mutex_);
 
     time_last_rc_msg_received_ = ros::Time::now();
+
+    if (received_sbus_msg.isKillSwitch())
+    {
+      // switch to RC_FLIGHT, pass through sbus message, flight controller will kill motors
+      ROS_WARN("[%s] Kill switch activated.", pnh_.getNamespace().c_str());
+      setBridgeState(BridgeState::OFF);
+      sendSBusMessageToSerialPort(received_sbus_msg);
+
+      return;
+    }
 
     if (received_sbus_msg.isArmed()) 
     {
@@ -241,8 +253,11 @@ void SBusBridge::controlCommandCallback(
     return;
   }
 
-  if (!bridge_armed_ || bridge_state_ == BridgeState::RC_FLIGHT)
-  {
+  // may need more logic @TODO
+  time_last_active_control_command_received_ = ros::Time::now();
+
+  if (!bridge_armed_ || bridge_state_ != BridgeState::AUTONOMOUS_FLIGHT)
+  {    
     // If bridge is not armed we do not allow control commands to be sent
     // RC has priority over control commands for autonomous flying
     if (!bridge_armed_ && msg->aux.enable_motors &&
@@ -254,6 +269,30 @@ void SBusBridge::controlCommandCallback(
           pnh_.getNamespace().c_str());
     }
     return;
+  }
+  else
+  {
+    if (bridge_armed_)
+    {
+        ROS_INFO("Bridge armed");
+    }
+    // // log current bridge state
+    // switch (bridge_state_) {
+    //     case BridgeState::OFF:
+    //     ROS_INFO("Bridge state: OFF");
+    //     break;
+    //     case BridgeState::ARMING:
+    //     ROS_INFO("Bridge state: ARMING");
+    //     break;
+    //     case BridgeState::AUTONOMOUS_FLIGHT:
+    //     ROS_INFO("Bridge state: AUTONOMOUS_FLIGHT");
+    //     break;
+    //     case BridgeState::RC_FLIGHT:
+    //     ROS_INFO("Bridge state: RC_FLIGHT");
+    //     break;
+    //     default:
+    //     ROS_INFO("Bridge state: UNKNOWN");
+    // }
   }
 
   SBusMsg sbus_msg_to_send;
@@ -311,6 +350,7 @@ void SBusBridge::sendSBusMessageToSerialPort(const SBusMsg& sbus_msg)
     case BridgeState::OFF:
       // Disarm vehicle
       sbus_message_to_send.setArmStateDisarmed();
+    //   ROS_INFO("Bridge state: OFF");
       break;
 
     case BridgeState::ARMING:
@@ -333,6 +373,7 @@ void SBusBridge::sendSBusMessageToSerialPort(const SBusMsg& sbus_msg)
 
     case BridgeState::RC_FLIGHT:
       // Passing RC command straight through
+      ROS_INFO("RC MODE: throttle_cmd %d", sbus_message_to_send.channels[sbus_bridge::channel_mapping::kThrottle]);
       break;
 
     default:
@@ -379,7 +420,7 @@ double SBusBridge::thrust_model_kartik(double thrust) const
                       thrust_vs_rpm_cof_c_ - avg_thrust);
   const double omega_avg = std::max(rpm_solutions.first, rpm_solutions.second);
 
-  // Scaling from rotor velocity (RPM) to att_throttle for pixhawk
+  // Scaling from rotor velocity (RPM) to att_throttle for betaflight
   double throttle =
       (omega_avg - rpm_vs_throttle_linear_coeff_b_) / rpm_vs_throttle_linear_coeff_a_;
   return throttle;
@@ -406,14 +447,19 @@ SBusMsg SBusBridge::generateSBusMessageFromSO3Command(const kr_mav_msgs::SO3Comm
   double thrust = f_des(0) * R_cur(0, 2) + f_des(1) * R_cur(1, 2) + f_des(2) * R_cur(2, 2);
 
   double throttle = 0.0;
-  throttle = thrust_model_kartik(thrust);
+  if (thrust > 1e-5)
+  {
+    throttle = thrust_model_kartik(thrust);
+  }
 
-  sbus_msg.setThrottleCommand(throttle);
-//   sbus_msg.setThrottleCommand(thrust_mapping_.inverseThrustMapping(
-//           thrust * mass_, battery_voltage_));
+  // remap throttle (1000 to 2000) to sbus (kMinCmd to kMaxCmd)
+  uint16_t throttle_cmd = round(((throttle - 1000) / 1000) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
+  ROS_INFO("AUTONOMOUS MODE: thrust: %f throttle: %f throttle_cmd: %d", thrust, throttle, throttle_cmd);
+  sbus_msg.setThrottleCommand(throttle_cmd);
 
   // convert quaternion to euler
   Eigen::Vector3d desired_euler_angles = q_des.toRotationMatrix().eulerAngles(0, 1, 2);
+
   // sanity check if larger than 3 rad, set to 0
   for (int i = 0; i < 3; i++) {
     if (desired_euler_angles(i) > 3.0 || desired_euler_angles(i) < -3.0)
@@ -422,18 +468,39 @@ SBusMsg SBusBridge::generateSBusMessageFromSO3Command(const kr_mav_msgs::SO3Comm
     }
   }
 
-  sbus_msg.setRollCommand(
-          round((desired_euler_angles(0) / max_roll_angle_) *
-                  (SBusMsg::kMaxCmd - SBusMsg::kMeanCmd) +
-              SBusMsg::kMeanCmd));
-  sbus_msg.setPitchCommand(
-          round((desired_euler_angles(1) / max_pitch_angle_) *
-                  (SBusMsg::kMaxCmd - SBusMsg::kMeanCmd) +
-              SBusMsg::kMeanCmd));
-  sbus_msg.setYawCommand(
-          round((msg->angular_velocity.z / max_yaw_rate_) *
-                  (SBusMsg::kMaxCmd - SBusMsg::kMeanCmd) +
-              SBusMsg::kMeanCmd));
+  double yaw, roll, pitch;
+  // use tf2 to convert quaternion to euler
+  tf2::Matrix3x3(tf2::Quaternion(q_des.x(), q_des.y(), q_des.z(), q_des.w())).getRPY(roll, pitch, yaw);
+  // convert to degrees
+  double yaw_deg = yaw * 180.0 / M_PI;
+  double roll_deg = roll * 180.0 / M_PI;
+  double pitch_deg = pitch * 180.0 / M_PI;
+  
+//   ROS_INFO("tf2 euler angles: %f, %f, %f", roll_deg, pitch_deg, yaw_deg);
+//   ROS_INFO("Desired Euler Angles: %f, %f, %f", desired_euler_angles(0), desired_euler_angles(1), desired_euler_angles(2));
+
+  uint16_t roll_cmd = round((roll_deg + max_roll_angle_) / (2 * max_roll_angle_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
+  uint16_t pitch_cmd = round((pitch_deg + max_pitch_angle_) / (2 * max_pitch_angle_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
+  uint16_t yaw_cmd = round(((msg->angular_velocity.z * 180.0 / M_PI) + max_yaw_rate_) / (2 * max_yaw_rate_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
+
+  ROS_INFO("desired yaw rate: %f, yaw_cmd: %d", msg->angular_velocity.z, yaw_cmd);
+//   ROS_INFO("AUTONOMOUS MODE: roll_cmd: %d pitch_cmd: %d yaw_cmd: %d", roll_cmd, pitch_cmd, yaw_cmd);
+
+  sbus_msg.setRollCommand(roll_cmd);
+  sbus_msg.setPitchCommand(pitch_cmd);
+  sbus_msg.setYawCommand(yaw_cmd);
+
+  // publish values as odom message
+  nav_msgs::Odometry sbus_cmd;
+  sbus_cmd.header.stamp = ros::Time::now();
+  // convert to float
+  sbus_cmd.pose.pose.position.x = static_cast<float>(roll_cmd);
+  sbus_cmd.pose.pose.position.y = static_cast<float>(pitch_cmd);
+  sbus_cmd.pose.pose.position.z = static_cast<float>(yaw_cmd);
+
+  // publish
+  sbus_cmd_pub_.publish(sbus_cmd);
+
 //   ROS_INFO("Thrust: %f", thrust_mapping_.inverseThrustMapping(
 //         thrust * mass_, battery_voltage_));
   // ROS_INFO("Roll: %f", round((desired_euler_angles(0) / max_roll_angle_) *
@@ -632,11 +699,11 @@ bool SBusBridge::loadParameters()
         return false;
     }
 
-    max_roll_rate_ /= (180.0 / M_PI);
-    max_pitch_rate_ /= (180.0 / M_PI);
-    max_yaw_rate_ /= (180.0 / M_PI);
-    max_roll_angle_ /= (180.0 / M_PI);
-    max_pitch_angle_ /= (180.0 / M_PI);
+    // max_roll_rate_ /= (180.0 / M_PI);
+    // max_pitch_rate_ /= (180.0 / M_PI);
+    // max_yaw_rate_ /= (180.0 / M_PI);
+    // max_roll_angle_ /= (180.0 / M_PI);
+    // max_pitch_angle_ /= (180.0 / M_PI);
     
     return true;
 }

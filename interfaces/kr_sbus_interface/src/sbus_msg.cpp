@@ -118,6 +118,14 @@ bool SBusMsg::isArmed() const {
   return true;
 }
 
+bool SBusMsg::isKillSwitch() const {
+  if (channels[channel_mapping::kKillSwitch] > kMeanCmd) {
+    return false;
+  }
+
+  return true;
+}
+
 ControlMode SBusMsg::getControlMode() const {
   if (channels[channel_mapping::kControlMode] > kMeanCmd) {
     return ControlMode::BODY_RATES;

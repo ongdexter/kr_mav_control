@@ -16,9 +16,9 @@ enum class ArmState { DISARMED, ARMED };
 struct SBusMsg {
   // Constants
   static constexpr int kNChannels = 16;
-  static constexpr uint16_t kMinCmd = 192;   // corresponds to 1000 on FC
+  static constexpr uint16_t kMinCmd = 174;   // corresponds to 1000 on FC
   static constexpr uint16_t kMeanCmd = 992;  // corresponds to 1500 on FC
-  static constexpr uint16_t kMaxCmd = 1792;  // corresponds to 2000 on FC
+  static constexpr uint16_t kMaxCmd = 1811;  // corresponds to 2000 on FC
 
   ros::Time timestamp;
 
@@ -56,6 +56,7 @@ struct SBusMsg {
 
   // Sbus message check helpers
   bool isArmed() const;
+  bool isKillSwitch() const;
   ControlMode getControlMode() const;
 };
 #pragma pack(pop)

@@ -79,6 +79,7 @@ class SBusBridge : public SBusSerialPort
   // Publishers
   ros::Publisher low_level_feedback_pub_;
   ros::Publisher received_sbus_msg_pub_;
+  ros::Publisher sbus_cmd_pub_;
 
   // Subscribers
   ros::Subscriber control_command_sub_;
