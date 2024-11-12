@@ -176,9 +176,24 @@ void SBusBridge::handleReceivedSbusMessage(const SBusMsg& received_sbus_msg)
 
     if (received_sbus_msg.isKillSwitch())
     {
-      // switch to RC_FLIGHT, pass through sbus message, flight controller will kill motors
-      ROS_WARN("[%s] Kill switch activated.", pnh_.getNamespace().c_str());
-      setBridgeState(BridgeState::OFF);
+      if (bridge_state_ != BridgeState::KILL)
+      {
+        setBridgeState(BridgeState::KILL);
+        ROS_INFO("[%s] Kill switch ON", pnh_.getNamespace().c_str());
+      }      
+    }
+    else
+    {
+        if (bridge_state_ == BridgeState::KILL)
+        {
+            setBridgeState(BridgeState::OFF);
+            ROS_WARN("[%s] Kill switch OFF", pnh_.getNamespace().c_str());
+        }
+    }
+
+    if (bridge_state_ == BridgeState::KILL)
+    {
+      // send disarm to FC to kill motors
       sendSBusMessageToSerialPort(received_sbus_msg);
 
       return;
@@ -270,30 +285,6 @@ void SBusBridge::controlCommandCallback(
     }
     return;
   }
-  else
-  {
-    if (bridge_armed_)
-    {
-        ROS_INFO("Bridge armed");
-    }
-    // // log current bridge state
-    // switch (bridge_state_) {
-    //     case BridgeState::OFF:
-    //     ROS_INFO("Bridge state: OFF");
-    //     break;
-    //     case BridgeState::ARMING:
-    //     ROS_INFO("Bridge state: ARMING");
-    //     break;
-    //     case BridgeState::AUTONOMOUS_FLIGHT:
-    //     ROS_INFO("Bridge state: AUTONOMOUS_FLIGHT");
-    //     break;
-    //     case BridgeState::RC_FLIGHT:
-    //     ROS_INFO("Bridge state: RC_FLIGHT");
-    //     break;
-    //     default:
-    //     ROS_INFO("Bridge state: UNKNOWN");
-    // }
-  }
 
   SBusMsg sbus_msg_to_send;
   {
@@ -369,11 +360,25 @@ void SBusBridge::sendSBusMessageToSerialPort(const SBusMsg& sbus_msg)
 
     case BridgeState::AUTONOMOUS_FLIGHT:
       sbus_message_to_send.setArmStateArmed();
+      if (use_body_rates_)
+      {
+        sbus_message_to_send.setControlModeBodyRates();
+      } else
+      {
+        sbus_message_to_send.setControlModeAttitude();
+      }
       break;
 
     case BridgeState::RC_FLIGHT:
       // Passing RC command straight through
-      ROS_INFO("RC MODE: throttle_cmd %d", sbus_message_to_send.channels[sbus_bridge::channel_mapping::kThrottle]);
+    //   ROS_INFO("RC MODE: throttle_cmd %d", sbus_message_to_send.channels[sbus_bridge::channel_mapping::kThrottle]);
+      sbus_message_to_send.setControlModeAttitude();
+      break;
+
+    case BridgeState::KILL:
+      // Disarm vehicle
+      sbus_message_to_send.setArmStateDisarmed();
+    //   ROS_INFO("Bridge state: OFF");
       break;
 
     default:
@@ -454,7 +459,7 @@ SBusMsg SBusBridge::generateSBusMessageFromSO3Command(const kr_mav_msgs::SO3Comm
 
   // remap throttle (1000 to 2000) to sbus (kMinCmd to kMaxCmd)
   uint16_t throttle_cmd = round(((throttle - 1000) / 1000) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
-  ROS_INFO("AUTONOMOUS MODE: thrust: %f throttle: %f throttle_cmd: %d", thrust, throttle, throttle_cmd);
+  ROS_INFO_THROTTLE(1, "AUTONOMOUS MODE: thrust: %f throttle: %f throttle_cmd: %d", thrust, throttle, throttle_cmd);
   sbus_msg.setThrottleCommand(throttle_cmd);
 
   // convert quaternion to euler
@@ -468,23 +473,60 @@ SBusMsg SBusBridge::generateSBusMessageFromSO3Command(const kr_mav_msgs::SO3Comm
     }
   }
 
-  double yaw, roll, pitch;
-  // use tf2 to convert quaternion to euler
-  tf2::Matrix3x3(tf2::Quaternion(q_des.x(), q_des.y(), q_des.z(), q_des.w())).getRPY(roll, pitch, yaw);
-  // convert to degrees
-  double yaw_deg = yaw * 180.0 / M_PI;
-  double roll_deg = roll * 180.0 / M_PI;
-  double pitch_deg = pitch * 180.0 / M_PI;
+  // parse commands
+  uint16_t roll_cmd, pitch_cmd, yaw_cmd;
+
+  if (use_body_rates_)
+  {
+    // get body rates
+    double roll_rate = msg->angular_velocity.x;
+    double pitch_rate = msg->angular_velocity.y;
+
+    roll_rate = std::max(-max_roll_rate_, std::min(max_roll_rate_, roll_rate));
+    pitch_rate = std::max(-max_pitch_rate_, std::min(max_pitch_rate_, pitch_rate));
+
+    // additional safety check
+    roll_rate = std::max(-400.0, std::min(400.0, roll_rate));
+    pitch_rate = std::max(-400.0, std::min(400.0, pitch_rate));
+
+    roll_cmd = round((roll_rate + max_roll_rate_) / (2 * max_roll_rate_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
+    pitch_cmd = round((pitch_rate + max_pitch_rate_) / (2 * max_pitch_rate_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
+    
+    ROS_INFO_THROTTLE(1, "AUTONOMOUS MODE: roll_rate: %f pitch_rate: %f", roll_rate, pitch_rate);
+    ROS_INFO_THROTTLE(1, "AUTONOMOUS MODE: roll_cmd: %d pitch_cmd: %d", roll_cmd, pitch_cmd);
+  }
+  else
+  {
+    // get body angles
+    double yaw, roll, pitch;
+    // use tf2 to convert quaternion to euler
+    tf2::Matrix3x3(tf2::Quaternion(q_des.x(), q_des.y(), q_des.z(), q_des.w())).getRPY(roll, pitch, yaw);
+    // convert to degrees
+    double roll_deg = roll * 180.0 / M_PI;
+    double pitch_deg = pitch * 180.0 / M_PI;
+    
+    // clip max roll
+    roll_deg = std::max(-max_roll_angle_, std::min(max_roll_angle_, roll_deg));
+    // clip max pitch
+    pitch_deg = std::max(-max_pitch_angle_, std::min(max_pitch_angle_, pitch_deg));    
+
+    roll_cmd = round((roll_deg + max_roll_angle_) / (2 * max_roll_angle_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
+    pitch_cmd = round((pitch_deg + max_pitch_angle_) / (2 * max_pitch_angle_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
+    
+    ROS_INFO_THROTTLE(1, "AUTONOMOUS MODE: roll_deg: %f pitch_deg: %f", roll_deg, pitch_deg);
+    // ROS_INFO("desired yaw rate: %f, yaw_cmd: %d", msg->angular_velocity.z, yaw_cmd);
+    //   ROS_INFO("AUTONOMOUS MODE: roll_cmd: %d pitch_cmd: %d yaw_cmd: %d", roll_cmd, pitch_cmd, yaw_cmd);
+  }
+
+  // always use yaw rate
+  double yaw_rate = -msg->angular_velocity.z; // flip sign since FC yaw is inverted (z-down)
+  yaw_rate = yaw_rate * 180.0 / M_PI; // convert to degrees
+  yaw_rate = std::max(-400.0, std::min(400.0, yaw_rate)); // clip max yaw rate
+  yaw_cmd = round((yaw_rate + max_yaw_rate_) / (2 * max_yaw_rate_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
+//   std::cout << yaw_rate + max_yaw_rate_ << std::endl;
+//   std::cout << (yaw_rate + max_yaw_rate_) / (2 * max_yaw_rate_) << std::endl;
   
-//   ROS_INFO("tf2 euler angles: %f, %f, %f", roll_deg, pitch_deg, yaw_deg);
-//   ROS_INFO("Desired Euler Angles: %f, %f, %f", desired_euler_angles(0), desired_euler_angles(1), desired_euler_angles(2));
-
-  uint16_t roll_cmd = round((roll_deg + max_roll_angle_) / (2 * max_roll_angle_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
-  uint16_t pitch_cmd = round((pitch_deg + max_pitch_angle_) / (2 * max_pitch_angle_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
-  uint16_t yaw_cmd = round(((msg->angular_velocity.z * 180.0 / M_PI) + max_yaw_rate_) / (2 * max_yaw_rate_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
-
-  ROS_INFO("desired yaw rate: %f, yaw_cmd: %d", msg->angular_velocity.z, yaw_cmd);
-//   ROS_INFO("AUTONOMOUS MODE: roll_cmd: %d pitch_cmd: %d yaw_cmd: %d", roll_cmd, pitch_cmd, yaw_cmd);
+  ROS_INFO_THROTTLE(1, "AUTONOMOUS MODE: yaw_rate: %f yaw_cmd: %d", yaw_rate, yaw_cmd);
 
   sbus_msg.setRollCommand(roll_cmd);
   sbus_msg.setPitchCommand(pitch_cmd);
@@ -533,6 +575,10 @@ void SBusBridge::setBridgeState(const BridgeState& desired_bridge_state) {
       break;
 
     case BridgeState::RC_FLIGHT:
+      bridge_state_ = desired_bridge_state;
+      break;
+
+    case BridgeState::KILL:
       bridge_state_ = desired_bridge_state;
       break;
 
@@ -698,10 +744,14 @@ bool SBusBridge::loadParameters()
         ROS_ERROR("[%s] Could not load rpm_vs_throttle_quadratic_coeff_c_ parameter.", pnh_.getNamespace().c_str());
         return false;
     }
+    if(!pnh_.getParam("use_body_rates", use_body_rates_)) {
+        ROS_ERROR("[%s] Could not load use_body_rates parameter.", pnh_.getNamespace().c_str());
+        return false;
+    }
 
-    // max_roll_rate_ /= (180.0 / M_PI);
-    // max_pitch_rate_ /= (180.0 / M_PI);
-    // max_yaw_rate_ /= (180.0 / M_PI);
+    // max_roll_rate_ *= (M_PI / 180.0); // convert to rad/s
+    // max_pitch_rate_ *= (M_PI / 180.0); // convert to rad/s
+    // max_yaw_rate_ *= (M_PI / 180.0); // convert to rad/s
     // max_roll_angle_ /= (180.0 / M_PI);
     // max_pitch_angle_ /= (180.0 / M_PI);
     

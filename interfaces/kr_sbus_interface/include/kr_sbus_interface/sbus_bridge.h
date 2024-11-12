@@ -20,7 +20,8 @@ enum class BridgeState
   OFF,
   ARMING,
   AUTONOMOUS_FLIGHT,
-  RC_FLIGHT
+  RC_FLIGHT,
+  KILL
 };
 
 class SBusBridge : public SBusSerialPort
@@ -148,6 +149,8 @@ class SBusBridge : public SBusSerialPort
   double rpm_vs_throttle_quadratic_coeff_a_;
   double rpm_vs_throttle_quadratic_coeff_b_;
   double rpm_vs_throttle_quadratic_coeff_c_;
+
+  bool use_body_rates_;
 };
 
 }  // namespace sbus_bridge
