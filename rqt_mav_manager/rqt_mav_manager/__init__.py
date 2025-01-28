@@ -11,7 +11,6 @@ from ament_index_python import get_resource
 
 import kr_mav_manager.srv
 import std_srvs.srv
-from example_interfaces.srv import AddTwoInts
 
 class MavManagerUi(Plugin):
 
