@@ -16,7 +16,7 @@ def generate_launch_description():
   so3_cmd_topic = LaunchConfiguration('so3_cmd')
 
   robot_arg = DeclareLaunchArgument(
-    'robot', default_value=''
+    'robot', default_value='quadrotor'
   )
   odom_arg = DeclareLaunchArgument(
     'odom', default_value='odom'
@@ -32,7 +32,7 @@ def generate_launch_description():
       package="kr_mav_manager",
       executable="mav_services",
       namespace=LaunchConfiguration('robot'),
-      name="manager",
+      name="mav_services",
       output='screen'
   )
 
@@ -85,7 +85,7 @@ def generate_launch_description():
       # so3_cmd_arg,
       # so3cmd_to_crazyflie_component,
       mav_services_node,
-      # rqt_gui_node,
+      rqt_gui_node,
       trackers_component,
 
   ])
