@@ -5,13 +5,10 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.substitutions import FindPackageShare
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
-import os
-from launch.actions import IncludeLaunchDescription
-from launch.launch_description_sources import PythonLaunchDescriptionSource
 
 def generate_launch_description():
 
-  ld = LaunchDescription()
+  robot_ns = LaunchConfiguration('robot')  
   odom_topic = LaunchConfiguration('odom')
   so3_cmd_topic = LaunchConfiguration('so3_cmd')
 
@@ -28,7 +25,7 @@ def generate_launch_description():
   # Path to the configuration file
   config_file = FindPackageShare('kr_crazyflie_interface').find('kr_crazyflie_interface') + '/config/crazyflie.yaml'
   
-  mav_services_node = Node(
+  manager_node = Node(
       package="kr_mav_manager",
       executable="mav_services",
       namespace=LaunchConfiguration('robot'),
@@ -41,51 +38,63 @@ def generate_launch_description():
       executable="rqt_mav_manager",
       namespace=LaunchConfiguration('robot'),
       name="rqt_mav",
-      output='screen',
+      output='screen'
   )
 
-  trackers_manager_launch_path = os.path.join(
-        FindPackageShare('kr_trackers_manager').find('kr_trackers_manager'),
-        'launch',
-        'example.launch.py'
-  )
-
-  # Include the trackers manager launch file
-  trackers_component = IncludeLaunchDescription(
-      PythonLaunchDescriptionSource(trackers_manager_launch_path)
-  )
-
-
-  # Component configuration
-  so3cmd_to_crazyflie_component = ComposableNodeContainer(
-    name="so3_container",
+  trackers_component = ComposableNodeContainer(
+    name="trackers_container",
     namespace=LaunchConfiguration('robot'),
     package="rclcpp_components",
     executable="component_container",
     composable_node_descriptions=[
       ComposableNode(
-        package="kr_crazyflie_interface",
-        plugin="SO3CmdToCrazyflie",
-        name="so3cmd_to_crazyflie",
-        parameters=[config_file],
-        remappings=[
-          ("~/odom", odom_topic),
-          ("~/so3_cmd", so3_cmd_topic)
-        ]
-      )
+        package="kr_trackers_manager",
+        plugin="TrackersManager",
+        name="kr_trackers_manager",
+      ),
+      ComposableNode(
+        package="kr_trackers_manager",
+        plugin="TrackersManagerLifecycleManager",
+        name="kr_trackers_manager_lifecycle",
+      ),
+      ComposableNode(
+        package="kr_mav_controllers",
+        plugin="SO3ControlComponent",
+        name="so3_controller",
+      ),
     ],
     output='screen'
   )
+  # EXAMPLE BELOW
+  # Component configuration
+  # so3cmd_to_crazyflie_component = ComposableNodeContainer(
+  #   name="so3_container",
+  #   namespace=LaunchConfiguration('robot'),
+  #   package="rclcpp_components",
+  #   executable="component_container",
+  #   composable_node_descriptions=[
+  #     ComposableNode(
+  #       package="kr_crazyflie_interface",
+  #       plugin="SO3CmdToCrazyflie",
+  #       name="so3cmd_to_crazyflie",
+  #       parameters=[config_file],
+  #       remappings=[
+  #         ("~/odom", odom_topic),
+  #         ("~/so3_cmd", so3_cmd_topic)
+  #       ]
+  #     )
+  #   ],
+  #   output='screen'
+  # )
     # Regular Node (not in container)
 
 
   return LaunchDescription([
       robot_arg,
-      # odom_arg,
-      # so3_cmd_arg,
-      # so3cmd_to_crazyflie_component,
-      mav_services_node,
-      # rqt_gui_node,
+      odom_arg,
+      so3_cmd_arg,
+      manager_node,
+      rqt_gui_node,
       trackers_component,
 
   ])

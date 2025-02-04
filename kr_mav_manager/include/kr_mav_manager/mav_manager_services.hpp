@@ -187,6 +187,7 @@ class MAVManagerServices
   // Constructor
   MAVManagerServices(std::shared_ptr<MAVManager> m) : mav(m), last_cb_("")
   {
+    RCLCPP_INFO(this->mav->get_logger(), "Starting Services...");
     motors_srv_ = mav->create_service<std_srvs::srv::SetBool>("~/motors",
                                                               std::bind(&MAVManagerServices::motors_cb, this, _1, _2));
     takeoff_srv_ = mav->create_service<std_srvs::srv::Trigger>(

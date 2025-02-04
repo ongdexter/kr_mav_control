@@ -68,9 +68,10 @@ LifecycleCallbackReturn TrackersManager::on_configure(const rclcpp_lifecycle::St
   {
     try
     {
+      RCLCPP_INFO(this->get_logger(), name.c_str());
       auto ptr = tracker_loader_.createSharedInstance(name);
       ptr->Initialize(weak_node);
-      std::cout << "Loaded successfully\n";
+      RCLCPP_INFO(this->get_logger(), "Loaded successfully");
       tracker_map_.insert(std::make_pair(name, ptr));
     }
     catch (const pluginlib::LibraryLoadException& e)
@@ -132,6 +133,8 @@ void TrackersManager::odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg
 
 void TrackersManager::transition_callback(const kr_tracker_msgs::srv::Transition::Request::SharedPtr req, const kr_tracker_msgs::srv::Transition::Response::SharedPtr res)
 {
+  RCLCPP_INFO(this->get_logger(), "TRANSITION CALLBACK:");
+  RCLCPP_INFO(this->get_logger(),  req->tracker.c_str());
   const std::map<std::string, std::shared_ptr<kr_trackers_manager::Tracker>>::iterator it = tracker_map_.find(req->tracker);
   if(it == tracker_map_.end())
   {

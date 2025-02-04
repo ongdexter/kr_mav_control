@@ -14,13 +14,13 @@
 namespace kr_mav_manager
 {
 // Strings
-static const std::string line_tracker_distance("kr_trackers/LineTrackerDistance");
-static const std::string line_tracker_min_jerk("kr_trackers/LineTrackerMinJerk");
-static const std::string velocity_tracker_str("kr_trackers/VelocityTracker");
-static const std::string null_tracker_str("kr_trackers/NullTracker");
-static const std::string circle_tracker_str("kr_trackers/CircleTracker");
-static const std::string lissajous_tracker_str("kr_trackers/LissajousTracker");
-static const std::string lissajous_adder_str("kr_trackers/LissajousAdder");
+static const std::string line_tracker_distance("LineTrackerDistance");
+static const std::string line_tracker_min_jerk("LineTrackerMinJerk");
+static const std::string velocity_tracker_str("VelocityTracker");
+static const std::string null_tracker_str("NullTracker");
+static const std::string circle_tracker_str("CircleTracker");
+static const std::string lissajous_tracker_str("LissajousTracker");
+static const std::string lissajous_adder_str("LissajousAdder");
 
 using namespace std::placeholders;
 
@@ -119,7 +119,7 @@ MAVManager::MAVManager()
   srv_transition_ = this->create_client<kr_tracker_msgs::srv::Transition>("trackers_manager/transition");
 
   srv_transition_->wait_for_service();
-  if(!this->transition(null_tracker_str))
+  if (!this->transition(null_tracker_str))
   {
     RCLCPP_FATAL(this->get_logger(), "Activation of NullTracker failed.");
   }

@@ -1,6 +1,11 @@
 <class_libraries>
   <library path="kr_trackers_plugins">
 
+    <class type="NullTracker"
+           base_class_type="kr_trackers_manager::Tracker">
+      <description>This is a tracker which acts as an intermediary between other trackers</description>
+    </class>
+
     <class type="LineTrackerDistance"
            base_class_type="kr_trackers_manager::Tracker">
       <description>This is a tracker which follows a line from the current position to a given goal position using a trapezoidal trajectory with distance along the trajectory as the parameter instead of time.</description>

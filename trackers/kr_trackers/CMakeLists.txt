@@ -45,6 +45,7 @@ set(node_dependencies
 add_library(${PROJECT_NAME}_plugins SHARED 
   src/line_tracker_distance_server.cpp
   src/line_tracker_min_jerk_server.cpp 
+  src/null_tracker.cpp
   src/initial_conditions.cpp)
 ament_target_dependencies(${PROJECT_NAME}_plugins ${node_dependencies})
 
