@@ -47,6 +47,7 @@ def generate_launch_description():
   )
   
   trackers_manager_config_file = FindPackageShare('kr_trackers_manager').find('kr_trackers_manager') + '/config/trackers_manager.yaml'
+  print(trackers_manager_config_file)
 
   trackers_manager_launch_path = os.path.join(
         FindPackageShare('kr_trackers_manager').find('kr_trackers_manager'),
@@ -58,7 +59,7 @@ def generate_launch_description():
   trackers_component = IncludeLaunchDescription(
       PythonLaunchDescriptionSource(trackers_manager_launch_path),
       launch_arguments={
-          'config_file': trackers_manager_config_file
+          'trackers_manager_config_file': config_file
           }.items()
   )
 
@@ -97,8 +98,8 @@ def generate_launch_description():
       # odom_arg,
       # so3_cmd_arg,
       # so3cmd_to_crazyflie_component,
-      mav_services_node,
-      rqt_gui_node,
+      # mav_services_node,
+      # rqt_gui_node,
       trackers_component_with_namespace,
 
   ])

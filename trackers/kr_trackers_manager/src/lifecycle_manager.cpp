@@ -30,7 +30,7 @@ TrackersManagerLifecycleManager::TrackersManagerLifecycleManager(const rclcpp::N
   node_namespace = this->get_namespace();
   node_name = this->get_parameter("node_name").as_string();
   service_change_state_name =  
-    node_namespace +std::string("/") + node_name + std::string("/change_state");
+    node_namespace + std::string("/") + node_name + std::string("/change_state");
   client_ = this->create_client<lifecycle_msgs::srv::ChangeState>(service_change_state_name);
 
   RCLCPP_INFO(this->get_logger(), service_change_state_name.c_str());

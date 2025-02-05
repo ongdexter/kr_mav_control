@@ -6,16 +6,23 @@ from launch import LaunchDescription
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
 from launch_ros.substitutions import FindPackageShare
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
+
+def print_config_file(context, *args, **kwargs):
+    # Get the evaluated value of config_file
+    config_file_value = LaunchConfiguration('config_file').perform(context)
+    print(f"Config file path: {config_file_value}")  # Prints to the console
+    return [LogInfo(msg=f"Config file path: {config_file_value}")]  # Logs via ROS
 
 def generate_launch_description():
 
     robot_arg = DeclareLaunchArgument(
       'namespace', default_value=''
     )
+    config_file_arg = DeclareLaunchArgument('config_file')
     # Path to the configuration file
-    config_file = FindPackageShare('kr_trackers_manager').find('kr_trackers_manager') + '/config/trackers_manager.yaml'
+    config_file = LaunchConfiguration('config_file')
 
     container = ComposableNodeContainer(
         name="trackers_manager_container",
@@ -44,5 +51,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         robot_arg,
+        config_file_arg,
+        OpaqueFunction(function=print_config_file),  # Call the function to print config_file
         container,
     ])

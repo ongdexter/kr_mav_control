@@ -63,12 +63,22 @@ LifecycleCallbackReturn TrackersManager::on_configure(const rclcpp_lifecycle::St
   this->declare_parameter<std::vector<std::string>>("trackers", {"LineTrackerDistance"});
   std::vector<std::string> trackers_array;
   this->get_parameter("trackers", trackers_array);
+  auto param_names = this->list_parameters({}, 10).names;
+
+  // Print each parameter name and its value
+  for (const auto &name : param_names) {
+      rclcpp::Parameter param;
+      if (this->get_parameter(name, param)) {
+          RCLCPP_INFO(this->get_logger(), "Parameter: %s = %s", 
+                      name.c_str(), param.value_to_string().c_str());
+      }
+  }
 
   for(auto name: trackers_array)
   {
     try
     {
-      RCLCPP_INFO(this->get_logger(), name.c_str());
+      RCLCPP_INFO_STREAM(this->get_logger(), "Adding " << name.c_str() << " to tracker_map_");
       auto ptr = tracker_loader_.createSharedInstance(name);
       ptr->Initialize(weak_node);
       RCLCPP_INFO(this->get_logger(), "Loaded successfully");
