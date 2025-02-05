@@ -8,6 +8,8 @@ from launch_ros.descriptions import ComposableNode
 import os
 from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import GroupAction
+from launch_ros.actions import PushRosNamespace
 
 def generate_launch_description():
 
@@ -49,12 +51,18 @@ def generate_launch_description():
         'launch',
         'example.launch.py'
   )
-
+    
   # Include the trackers manager launch file
   trackers_component = IncludeLaunchDescription(
-      PythonLaunchDescriptionSource(trackers_manager_launch_path)
+      PythonLaunchDescriptionSource(trackers_manager_launch_path),
   )
 
+  trackers_component_with_namespace = GroupAction(
+     actions=[
+         PushRosNamespace(LaunchConfiguration('robot')),
+         trackers_component,
+      ]
+   ) 
 
   # Component configuration
   so3cmd_to_crazyflie_component = ComposableNodeContainer(
@@ -84,8 +92,8 @@ def generate_launch_description():
       # odom_arg,
       # so3_cmd_arg,
       # so3cmd_to_crazyflie_component,
-      mav_services_node,
-      rqt_gui_node,
-      trackers_component,
+      # mav_services_node,
+      # rqt_gui_node,
+      trackers_component_with_namespace,
 
   ])

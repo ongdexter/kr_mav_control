@@ -1,0 +1,50 @@
+launch:
+  - declare_launch_argument:
+      name: robot
+      default_value: quadrotor
+
+  - declare_launch_argument:
+      name: odom
+      default_value: odom
+
+  - declare_launch_argument:
+      name: so3_cmd
+      default_value: so3_cmd
+
+  - node:
+      package: rclcpp_components
+      exec: component_container_mt
+      name: trackers_manager_container
+      namespace: $(var robot)  # Equivalent to LaunchConfiguration('robot')
+      output: screen
+
+  - composable_node_container:
+      name: trackers_manager_container
+      composable_nodes:
+        - package: kr_trackers_manager
+          plugin: TrackersManager
+          name: trackers_manager
+          parameters:
+            - $(var config_file)  # Assuming 'config_file' is passed as a launch argument
+
+        - package: kr_trackers_manager
+          plugin: TrackersManagerLifecycleManager
+          name: lifecycle_manager
+          parameters:
+            - node_name: trackers_manager
+
+  - node:
+      pkg: kr_mav_manager
+      exec: mav_services
+      namespace: $(var robot)
+      name: mav_services
+      output: screen
+
+  - node:
+      pkg: rqt_mav_manager
+      exec: rqt_mav_manager
+      namespace: $(var robot)
+      name: rqt_mav
+      output: screen
+
+

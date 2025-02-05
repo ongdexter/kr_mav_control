@@ -50,18 +50,21 @@ MAVManager::MAVManager()
   this->declare_parameter("mass", rclcpp::PARAMETER_DOUBLE);
   this->declare_parameter("odom_timeout", 0.1f);
   this->declare_parameter("takeoff_height", 0.1);
+  this->declare_parameter("robot_name", "quadrotor");
+
+  std::string robot_name = this->get_parameter("robot_name").as_string();
 
   // Action Client
   line_tracker_distance_client_ =
-      rclcpp_action::create_client<LineTracker>(this, "trackers_manager/line_tracker_distance/LineTracker");
+      rclcpp_action::create_client<LineTracker>(this, robot_name + "/trackers_manager/line_tracker_distance/LineTracker");
   line_tracker_min_jerk_client_ =
-      rclcpp_action::create_client<LineTracker>(this, "trackers_manager/line_tracker_min_jerk/LineTracker");
+      rclcpp_action::create_client<LineTracker>(this, robot_name +"/trackers_manager/line_tracker_min_jerk/LineTracker");
   circle_tracker_client_ =
-      rclcpp_action::create_client<CircleTracker>(this, "trackers_manager/circle_tracker/CircleTracker");
+      rclcpp_action::create_client<CircleTracker>(this, robot_name +"/trackers_manager/circle_tracker/CircleTracker");
   lissajous_tracker_client_ =
-      rclcpp_action::create_client<LissajousTracker>(this, "trackers_manager/lissajous_tracker/LissajousTracker");
+      rclcpp_action::create_client<LissajousTracker>(this, robot_name +"/trackers_manager/lissajous_tracker/LissajousTracker");
   lissajous_adder_client_ =
-      rclcpp_action::create_client<LissajousAdder>(this, "trackers_manager/lissajous_adder/LissajousAdder");
+      rclcpp_action::create_client<LissajousAdder>(this, robot_name +"/trackers_manager/lissajous_adder/LissajousAdder");
 
   float server_wait_timout;
   server_wait_timout = this->get_parameter("server_wait_timeout").as_double();

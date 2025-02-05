@@ -15,6 +15,7 @@ class TrackersManagerLifecycleManager : public rclcpp_lifecycle::LifecycleNode
  private: 
   rclcpp::Client<lifecycle_msgs::srv::ChangeState>::SharedPtr client_;
   std::string node_name;
+  std::string node_namespace;
   std::string service_change_state_name;
 };
 
@@ -25,8 +26,11 @@ TrackersManagerLifecycleManager::TrackersManagerLifecycleManager(const rclcpp::N
   : LifecycleNode("lifecycle_manager", rclcpp::NodeOptions(options).use_intra_process_comms(true))
 {
   this->declare_parameter("node_name", "kr_trackers_manager");
+
+  node_namespace = this->get_namespace();
   node_name = this->get_parameter("node_name").as_string();
-  service_change_state_name = std::string("/") + node_name + std::string("/change_state");
+  service_change_state_name =  
+    node_namespace +std::string("/") + node_name + std::string("/change_state");
   client_ = this->create_client<lifecycle_msgs::srv::ChangeState>(service_change_state_name);
 
   RCLCPP_INFO(this->get_logger(), service_change_state_name.c_str());

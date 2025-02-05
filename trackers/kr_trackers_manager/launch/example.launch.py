@@ -12,14 +12,14 @@ from launch.substitutions import LaunchConfiguration
 def generate_launch_description():
 
     robot_arg = DeclareLaunchArgument(
-      'robot', default_value='quadrotor'
+      'namespace', default_value=''
     )
     # Path to the configuration file
     config_file = FindPackageShare('kr_trackers_manager').find('kr_trackers_manager') + '/config/trackers_manager.yaml'
 
     container = ComposableNodeContainer(
         name="trackers_manager_container",
-        namespace=LaunchConfiguration('robot'),
+        namespace=LaunchConfiguration('namespace'),
         package="rclcpp_components",
         executable="component_container_mt",
         composable_node_descriptions= [
@@ -28,13 +28,11 @@ def generate_launch_description():
                 plugin="TrackersManager",
                 name="trackers_manager",
                 parameters=[config_file],
-                namespace=LaunchConfiguration('robot')
             ),
             ComposableNode(
                 package="kr_trackers_manager",
                 plugin="TrackersManagerLifecycleManager",
                 name="lifecycle_manager",
-                namespace=LaunchConfiguration('robot'),
                 parameters=[
                     {'node_name': "trackers_manager"}
                 ]
