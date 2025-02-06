@@ -20,6 +20,7 @@ class MAVManagerServices
   void motors_cb(const std_srvs::srv::SetBool::Request::SharedPtr req,
                  const std_srvs::srv::SetBool::Response::SharedPtr res)
   {
+    RCLCPP_INFO(this->mav->get_logger(), "Motors cb started!");
     res->success = mav->set_motors(req->data);
     res->message = "Motors ";
     res->message += req->data ? "on" : "off";
