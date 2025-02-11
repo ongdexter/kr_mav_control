@@ -22,6 +22,7 @@ class MAVManagerServices
   {
     RCLCPP_INFO(this->mav->get_logger(), "Motors cb started!");
     res->success = mav->set_motors(req->data);
+    RCLCPP_INFO(this->mav->get_logger(), "Set motors");
     res->message = "Motors ";
     res->message += req->data ? "on" : "off";
     if(res->success)

@@ -35,7 +35,8 @@ def generate_launch_description():
       executable="mav_services",
       namespace=LaunchConfiguration('robot'),
       name="mav_services",
-      output='screen'
+      output='screen',
+      # prefix=['gdbserver localhost:3000'],
   )
 
   rqt_gui_node = Node(

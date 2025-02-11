@@ -651,7 +651,11 @@ bool MAVManager::set_motors(bool motors)
   if(motors && this->motors())
     return true;
 
+  RCLCPP_INFO(this->get_logger(), "in set motors");
+
+
   bool null_tkr = this->transition(null_tracker_str);
+  RCLCPP_INFO(this->get_logger(), "started transition");
 
   // Make sure null_tracker is active before starting motors. If turning motors
   // off, continue anyway.
@@ -942,22 +946,36 @@ bool MAVManager::ehover()
 bool MAVManager::transition(const std::string &tracker_str)
 {
   // usleep(100000);
+  RCLCPP_INFO(this->get_logger(), "In transition");
 
   auto transition_cmd = std::make_shared<kr_tracker_msgs::srv::Transition::Request>();
   transition_cmd->tracker = tracker_str;
 
-  auto future = srv_transition_->async_send_request(transition_cmd);
+  using ServiceResponseFuture =
+      rclcpp::Client<kr_tracker_msgs::srv::Transition>::SharedFuture;
 
-  if(rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) == rclcpp::FutureReturnCode::SUCCESS)
-  {
-    auto response = future.get();
-    if(response->success)
-    {
-      active_tracker_ = tracker_str;
-      RCLCPP_INFO(this->get_logger(), "Current tracker: %s", tracker_str.c_str());
-      return true;
-    }
-  }
+  auto response_received_callback = [this](ServiceResponseFuture future) {
+        auto result = future.get();
+        RCLCPP_INFO(this->get_logger(), "Service Response: %i", result->success);
+        RCLCPP_INFO(this->get_logger(), "Service Response: %s", result->message.c_str());
+      };
+
+  auto future = srv_transition_->async_send_request(transition_cmd, response_received_callback);
+
+  // if(rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) == rclcpp::FutureReturnCode::SUCCESS)
+  // {
+  //   RCLCPP_INFO(this->get_logger(), "Inside if");
+  //   auto response = future.get();
+  //   if(response->success)
+  //   {
+  //     active_tracker_ = tracker_str;
+  //     RCLCPP_INFO(this->get_logger(), "Current tracker: %s", tracker_str.c_str());
+  //     return true;
+  //   }
+  // } else {
+  //   RCLCPP_INFO(this->get_logger(), "Inside else");
+
+  // }
 
   return false;
 }
