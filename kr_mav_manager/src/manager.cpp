@@ -954,30 +954,19 @@ bool MAVManager::transition(const std::string &tracker_str)
   using ServiceResponseFuture =
       rclcpp::Client<kr_tracker_msgs::srv::Transition>::SharedFuture;
 
-  auto response_received_callback = [this](ServiceResponseFuture future) {
-        auto result = future.get();
-        RCLCPP_INFO(this->get_logger(), "Service Response: %i", result->success);
-        RCLCPP_INFO(this->get_logger(), "Service Response: %s", result->message.c_str());
-      };
+  auto response_received_callback = [this, tracker_str](ServiceResponseFuture future) {
+    auto result = future.get();
+    RCLCPP_INFO(this->get_logger(), "Service Response: %i", result->success);
+    RCLCPP_INFO(this->get_logger(), "Service Response: %s", result->message.c_str());
+    if (result->success) {
+      active_tracker_ = tracker_str;
+      RCLCPP_INFO(this->get_logger(), "Current tracker: %s", tracker_str.c_str());
+      return true;
+    }
+    return false;
+  };
 
   auto future = srv_transition_->async_send_request(transition_cmd, response_received_callback);
-
-  // if(rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) == rclcpp::FutureReturnCode::SUCCESS)
-  // {
-  //   RCLCPP_INFO(this->get_logger(), "Inside if");
-  //   auto response = future.get();
-  //   if(response->success)
-  //   {
-  //     active_tracker_ = tracker_str;
-  //     RCLCPP_INFO(this->get_logger(), "Current tracker: %s", tracker_str.c_str());
-  //     return true;
-  //   }
-  // } else {
-  //   RCLCPP_INFO(this->get_logger(), "Inside else");
-
-  // }
-
-  return false;
 }
 
 bool MAVManager::have_recent_odom()

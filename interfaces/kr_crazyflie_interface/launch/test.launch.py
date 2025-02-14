@@ -95,9 +95,9 @@ def generate_launch_description():
 
   return LaunchDescription([
       robot_arg,
-      # odom_arg,
-      # so3_cmd_arg,
-      # so3cmd_to_crazyflie_component,
+      odom_arg,
+      so3_cmd_arg,
+      so3cmd_to_crazyflie_component,
       mav_services_node,
       rqt_gui_node,
       trackers_component_with_namespace,
