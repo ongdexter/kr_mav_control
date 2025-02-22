@@ -120,10 +120,12 @@ MAVManager::MAVManager()
       "trackers_manager/status", qos, std::bind(&MAVManager::tracker_status_cb, this, _1));
 
   // Services
-  srv_transition_ = this->create_client<kr_tracker_msgs::srv::Transition>("trackers_manager/transition");
+  cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  srv_transition_ = this->create_client<kr_tracker_msgs::srv::Transition>("trackers_manager/transition",
+                                                                          rmw_qos_profile_services_default, cb_group_);
 
   srv_transition_->wait_for_service();
-  if (!this->transition(null_tracker_str))
+  if(!this->transition(null_tracker_str))
   {
     RCLCPP_FATAL(this->get_logger(), "Activation of NullTracker failed.");
   }
@@ -174,6 +176,7 @@ MAVManager::MAVManager()
   {
     RCLCPP_ERROR(this->get_logger(), "Could not disable motors");
   }
+  construction_done = true;
 }
 
 void MAVManager::tracker_done_callback(const LineTrackerGoalHandle::WrappedResult &result)
@@ -653,7 +656,6 @@ bool MAVManager::set_motors(bool motors)
 
   RCLCPP_INFO(this->get_logger(), "in set motors");
 
-
   bool null_tkr = this->transition(null_tracker_str);
   RCLCPP_INFO(this->get_logger(), "started transition");
 
@@ -945,28 +947,55 @@ bool MAVManager::ehover()
 
 bool MAVManager::transition(const std::string &tracker_str)
 {
-  // usleep(100000);
   RCLCPP_INFO(this->get_logger(), "In transition");
 
   auto transition_cmd = std::make_shared<kr_tracker_msgs::srv::Transition::Request>();
   transition_cmd->tracker = tracker_str;
 
-  using ServiceResponseFuture =
-      rclcpp::Client<kr_tracker_msgs::srv::Transition>::SharedFuture;
-
-  auto response_received_callback = [this, tracker_str](ServiceResponseFuture future) {
-    auto result = future.get();
-    RCLCPP_INFO(this->get_logger(), "Service Response: %i", result->success);
-    RCLCPP_INFO(this->get_logger(), "Service Response: %s", result->message.c_str());
-    if (result->success) {
+  if(!construction_done)
+  {
+    auto future = srv_transition_->async_send_request(transition_cmd);
+    RCLCPP_INFO(this->get_logger(), "Sent Tracker Transition request.");
+    if(rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) == rclcpp::FutureReturnCode::SUCCESS)
+    {
+      auto response = future.get();
+      if(response->success)
+      {
+        active_tracker_ = tracker_str;
+        RCLCPP_INFO(this->get_logger(), "Current tracker: %s", tracker_str.c_str());
+        return true;
+      }
+    }
+    return false;
+  }
+  else
+  {
+    RCLCPP_INFO(this->get_logger(), "Sent Tracker Transition request");
+    auto future = std::async(std::launch::async, &MAVManager::send_transition_request, this, transition_cmd);
+    future.wait_for(std::chrono::seconds(1));
+    if(future.get())
+    {
       active_tracker_ = tracker_str;
       RCLCPP_INFO(this->get_logger(), "Current tracker: %s", tracker_str.c_str());
       return true;
     }
-    return false;
-  };
+  }
+  return false;
+}
 
-  auto future = srv_transition_->async_send_request(transition_cmd, response_received_callback);
+bool MAVManager::send_transition_request(std::shared_ptr<kr_tracker_msgs::srv::Transition::Request> transition_cmd)
+{
+  auto future = srv_transition_->async_send_request(transition_cmd);
+  try
+  {
+    auto response = future.get();
+    return response->success;
+  }
+  catch(const std::exception &e)
+  {
+    RCLCPP_WARN(this->get_logger(), "Transition callback failed");
+  }
+  return false;
 }
 
 bool MAVManager::have_recent_odom()

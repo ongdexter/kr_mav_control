@@ -136,6 +136,8 @@ class MAVManager : public rclcpp::Node
   bool estop();
 
   bool transition(const std::string &tracker_str);
+  bool construction_done = false;
+  bool send_transition_request(std::shared_ptr<kr_tracker_msgs::srv::Transition::Request> transition_cmd);
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
@@ -206,6 +208,7 @@ class MAVManager : public rclcpp::Node
 
   // Services
   rclcpp::Client<kr_tracker_msgs::srv::Transition>::SharedPtr srv_transition_;
+  rclcpp::CallbackGroup::SharedPtr cb_group_;
 
   // Helper variable
   std::map<rclcpp_action::ResultCode, std::string> result_status = {{rclcpp_action::ResultCode::SUCCEEDED, "SUCCEEDED"},
