@@ -12,9 +12,10 @@ find_package(geometry_msgs REQUIRED)
 find_package(kr_mav_msgs REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(crazyflie_interfaces)
 
 add_library(${PROJECT_NAME} SHARED src/so3cmd_to_crazyflie_component.cpp)
-ament_target_dependencies(${PROJECT_NAME} rclcpp rclcpp_components kr_mav_msgs nav_msgs geometry_msgs)
+ament_target_dependencies(${PROJECT_NAME} rclcpp rclcpp_components kr_mav_msgs nav_msgs geometry_msgs crazyflie_interfaces)
 target_link_libraries(${PROJECT_NAME} Eigen3::Eigen)
 rclcpp_components_register_nodes(${PROJECT_NAME} "SO3CmdToCrazyflie")
 

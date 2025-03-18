@@ -13,6 +13,8 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "rclcpp/rclcpp.hpp"
 
+#include "crazyflie_interfaces/srv/arm.hpp"
+
 // TODO: Remove CLAMP as macro
 #define CLAMP(x, min, max) ((x) < (min)) ? (min) : ((x) > (max)) ? (max) : (x)
 
@@ -26,10 +28,12 @@ class SO3CmdToCrazyflie : public rclcpp::Node
  private:
   void so3_cmd_callback(const kr_mav_msgs::msg::SO3Command::UniquePtr msg);
   void odom_callback(const nav_msgs::msg::Odometry::UniquePtr odom);
+  void arm_drone(bool arm);  // Added method to arm/disarm the drone
 
-  bool odom_set_, so3_cmd_set_;
+  bool odom_set_, so3_cmd_set_, armed_drone_;
   Eigen::Quaterniond q_odom_;
 
+  rclcpp::Client<crazyflie_interfaces::srv::Arm>::SharedPtr arm_client_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr crazy_fast_cmd_vel_pub_, crazy_cmd_vel_pub_;
 
   rclcpp::Subscription<kr_mav_msgs::msg::SO3Command>::SharedPtr so3_cmd_sub_;
@@ -68,6 +72,24 @@ void SO3CmdToCrazyflie::odom_callback(const nav_msgs::msg::Odometry::UniquePtr o
   }
 }
 
+void SO3CmdToCrazyflie::arm_drone(bool arm)
+{
+  auto request = std::make_shared<crazyflie_interfaces::srv::Arm::Request>();
+  request->arm = arm;
+
+  RCLCPP_INFO(this->get_logger(), "Sending arm request: %s", arm ? "true" : "false");
+  
+  // Send the service request
+  auto future = arm_client_->async_send_request(
+    request,
+    [this](rclcpp::Client<crazyflie_interfaces::srv::Arm>::SharedFuture future) {
+      auto result = future.get();
+      // RCLCPP_INFO(this->get_logger(), "Arm service call %s", 
+      //            result->success ? "succeeded" : "failed");
+    }
+  );
+}
+
 void SO3CmdToCrazyflie::so3_cmd_callback(kr_mav_msgs::msg::SO3Command::UniquePtr msg)
 {
   if(!so3_cmd_set_)
@@ -76,6 +98,10 @@ void SO3CmdToCrazyflie::so3_cmd_callback(kr_mav_msgs::msg::SO3Command::UniquePtr
   // switch on motors
   if(msg->aux.enable_motors)
   {
+    if (!armed_drone_) {
+      arm_drone(true);
+      armed_drone_ = true;
+    }
     // If the crazyflie motors are timed out, we need to send a zero message in order to get them to start
     if(motor_status_ < 3)
     {
@@ -102,6 +128,10 @@ void SO3CmdToCrazyflie::so3_cmd_callback(kr_mav_msgs::msg::SO3Command::UniquePtr
     crazy_cmd_vel_pub_->publish(std::move(motors_vel_cmd));
     last_so3_cmd_ = *msg;
     last_so3_cmd_time_ = msg->header.stamp;
+    if (armed_drone_) {
+      arm_drone(false);
+      armed_drone_ = false;
+    }
     return;
   }
 
@@ -209,12 +239,13 @@ SO3CmdToCrazyflie::SO3CmdToCrazyflie(const rclcpp::NodeOptions &options)
 
   odom_set_ = false;
   so3_cmd_set_ = false;
+  armed_drone_ = false;
   motor_status_ = 0;
 
   // TODO make sure this is publishing to the right place
-  crazy_fast_cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("~/cmd_vel_fast", 10);
+  crazy_fast_cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cf3/cmd_vel", 10);
 
-  crazy_cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("~/cmd_vel", 10);
+  crazy_cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cf3/cmd_vel", 10);
 
   // Setting QoS profile to get equivalent performance to ros::TransportHints().tcpNoDelay()
   rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
@@ -222,10 +253,22 @@ SO3CmdToCrazyflie::SO3CmdToCrazyflie(const rclcpp::NodeOptions &options)
   auto qos2 = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 1), qos_profile);
 
   so3_cmd_sub_ = this->create_subscription<kr_mav_msgs::msg::SO3Command>(
-      "~/so3_cmd", qos2, std::bind(&SO3CmdToCrazyflie::so3_cmd_callback, this, std::placeholders::_1));
+      "/quadrotor/so3_cmd", qos2, std::bind(&SO3CmdToCrazyflie::so3_cmd_callback, this, std::placeholders::_1));
 
   odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-      "~/odom", qos1, std::bind(&SO3CmdToCrazyflie::odom_callback, this, std::placeholders::_1));
+      "/quadrotor/odom", qos1, std::bind(&SO3CmdToCrazyflie::odom_callback, this, std::placeholders::_1));
+  
+  arm_client_ = this->create_client<crazyflie_interfaces::srv::Arm>("/cf3/arm");
+
+  while (!arm_client_->wait_for_service(std::chrono::seconds(1))) {
+    if (!rclcpp::ok()) {
+      RCLCPP_ERROR(this->get_logger(), "Interrupted while waiting for arm service. Exiting.");
+      return;
+    }
+    RCLCPP_INFO(this->get_logger(), "Waiting for arm service to appear...");
+  }
+  
+  RCLCPP_INFO(this->get_logger(), "Arm service client initialized");
 }
 
 #include "rclcpp_components/register_node_macro.hpp"

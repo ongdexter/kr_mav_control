@@ -11,6 +11,7 @@
 #include "tf2/utils.h"
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
+
 namespace kr_mav_manager
 {
 // Strings
@@ -50,9 +51,9 @@ MAVManager::MAVManager()
   this->declare_parameter("mass", rclcpp::PARAMETER_DOUBLE);
   this->declare_parameter("odom_timeout", 0.1f);
   this->declare_parameter("takeoff_height", 0.1);
-  this->declare_parameter("robot_name", "quadrotor");
+  this->declare_parameter("robot", "cf3");
 
-  std::string robot_name = this->get_parameter("robot_name").as_string();
+  std::string robot_name = this->get_parameter("robot").as_string();
   RCLCPP_INFO(this->get_logger(), robot_name.c_str());
 
   // Action Client
@@ -123,12 +124,14 @@ MAVManager::MAVManager()
   cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   srv_transition_ = this->create_client<kr_tracker_msgs::srv::Transition>("trackers_manager/transition",
                                                                           rmw_qos_profile_services_default, cb_group_);
+  RCLCPP_INFO(this->get_logger(), "1!!!!!!!!!!!!!!");
 
   srv_transition_->wait_for_service();
   if(!this->transition(null_tracker_str))
   {
     RCLCPP_FATAL(this->get_logger(), "Activation of NullTracker failed.");
   }
+  RCLCPP_INFO(this->get_logger(), "2!!!!!!!!!!!!!!");
 
   // Load params after we are sure that we have stuff loaded
   if(!this->get_parameter("need_imu", need_imu_))
@@ -140,6 +143,7 @@ MAVManager::MAVManager()
     imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>("quad_decode_msg/imu", 10,
                                                                 std::bind(&MAVManager::imu_cb, this, _1));
   }
+  RCLCPP_INFO(this->get_logger(), "3!!!!!!!!!!!!!!");
 
   if(!this->get_parameter("need_output_data", need_output_data_))
   {
@@ -150,11 +154,13 @@ MAVManager::MAVManager()
     output_data_sub_ = this->create_subscription<kr_mav_msgs::msg::OutputData>(
         "quad_decode_msg/output_data", 10, std::bind(&MAVManager::output_data_cb, this, _1));
   }
+  RCLCPP_INFO(this->get_logger(), "4!!!!!!!!!!!!!!");
 
   if(!this->get_parameter("use_attitide_safety_catch", use_attitude_safety_catch_))
   {
     RCLCPP_WARN(this->get_logger(), "Couldn't find use_attitude_safety_catch param");
   }
+  RCLCPP_INFO(this->get_logger(), "5!!!!!!!!!!!!!!");
 
   double m;
   if(!this->get_parameter("mass", m))
@@ -169,6 +175,7 @@ MAVManager::MAVManager()
   {
     RCLCPP_ERROR(this->get_logger(), "Mass failed to set. Perhaps mass <= 0?");
   }
+  RCLCPP_INFO(this->get_logger(), "6!!!!!!!!!!!!!!");
 
   this->get_parameter("odom_timeout", odom_timeout_);
 
@@ -177,6 +184,7 @@ MAVManager::MAVManager()
     RCLCPP_ERROR(this->get_logger(), "Could not disable motors");
   }
   construction_done = true;
+  RCLCPP_INFO(this->get_logger(), "construction of mav services done!!!!!!!!!!!!!!");
 }
 
 void MAVManager::tracker_done_callback(const LineTrackerGoalHandle::WrappedResult &result)
@@ -955,21 +963,39 @@ bool MAVManager::transition(const std::string &tracker_str)
   if(!construction_done)
   {
     auto future = srv_transition_->async_send_request(transition_cmd);
-    RCLCPP_INFO(this->get_logger(), "Sent Tracker Transition request.");
-    if(rclcpp::spin_until_future_complete(this->get_node_base_interface(), future) == rclcpp::FutureReturnCode::SUCCESS)
+    //auto future = std::async(std::launch::async, &MAVManager::send_transition_request, this, transition_cmd);
+    //future.wait_for(std::chrono::seconds(1));
+    //RCLCPP_INFO(this->get_logger(), "Not construction done.");
+    //RCLCPP_INFO(this->get_logger(), "Sent Tracker Transition request.");
+    //// future.wait_for(std::chrono::seconds(1));
+    //if(future.get())
+    //{
+    //  active_tracker_ = tracker_str;
+    //  RCLCPP_INFO(this->get_logger(), "Current tracker: %s", tracker_str.c_str());
+    //  RCLCPP_INFO(this->get_logger(), "Returning from Transition");
+    //  return true;
+    //}
+  
+
+    rclcpp::FutureReturnCode frc = rclcpp::spin_until_future_complete(this->get_node_base_interface(), future);
+    RCLCPP_INFO(this->get_logger(), "Done spinning until future complete");
+    if(frc == rclcpp::FutureReturnCode::SUCCESS)
     {
       auto response = future.get();
       if(response->success)
       {
         active_tracker_ = tracker_str;
         RCLCPP_INFO(this->get_logger(), "Current tracker: %s", tracker_str.c_str());
+        RCLCPP_INFO(this->get_logger(), "Returning from Transition");
         return true;
       }
     }
+    RCLCPP_INFO(this->get_logger(), "Returning from Transition");
     return false;
   }
   else
   {
+    RCLCPP_INFO(this->get_logger(), "Construction done.");
     RCLCPP_INFO(this->get_logger(), "Sent Tracker Transition request");
     auto future = std::async(std::launch::async, &MAVManager::send_transition_request, this, transition_cmd);
     future.wait_for(std::chrono::seconds(1));
@@ -977,9 +1003,11 @@ bool MAVManager::transition(const std::string &tracker_str)
     {
       active_tracker_ = tracker_str;
       RCLCPP_INFO(this->get_logger(), "Current tracker: %s", tracker_str.c_str());
+      RCLCPP_INFO(this->get_logger(), "Returning from Transition");
       return true;
     }
   }
+  RCLCPP_INFO(this->get_logger(), "Returning from Transition");
   return false;
 }
 

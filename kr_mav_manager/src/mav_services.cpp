@@ -6,6 +6,7 @@ int main(int argc, char **argv)
   auto mav = std::make_shared<kr_mav_manager::MAVManager>();
   kr_mav_manager::MAVManagerServices mm_srvs(mav);
 
+
   rclcpp::executors::MultiThreadedExecutor executor;
   executor.add_node(mav);
   executor.spin();
