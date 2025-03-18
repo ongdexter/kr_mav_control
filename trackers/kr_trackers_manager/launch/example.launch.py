@@ -43,7 +43,12 @@ def generate_launch_description():
                 parameters=[
                     {'node_name': "trackers_manager"}
                 ]
-            )
+            ),
+            ComposableNode(
+                package="kr_mav_controllers",
+                plugin="SO3ControlComponent",
+                name="so3_controller",
+            ),
         ],
         output='screen'
     )

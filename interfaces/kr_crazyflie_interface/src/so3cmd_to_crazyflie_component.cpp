@@ -95,13 +95,16 @@ void SO3CmdToCrazyflie::so3_cmd_callback(kr_mav_msgs::msg::SO3Command::UniquePtr
   if(!so3_cmd_set_)
     so3_cmd_set_ = true;
 
+  
   // switch on motors
   if(msg->aux.enable_motors)
   {
     if (!armed_drone_) {
       arm_drone(true);
       armed_drone_ = true;
+     // std::this_thread::sleep_for(std::chrono::seconds(1));
     }
+    
     // If the crazyflie motors are timed out, we need to send a zero message in order to get them to start
     if(motor_status_ < 3)
     {
@@ -243,9 +246,9 @@ SO3CmdToCrazyflie::SO3CmdToCrazyflie(const rclcpp::NodeOptions &options)
   motor_status_ = 0;
 
   // TODO make sure this is publishing to the right place
-  crazy_fast_cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cf3/cmd_vel", 10);
+  crazy_fast_cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cf3/cmd_vel_legacy", 10);
 
-  crazy_cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cf3/cmd_vel", 10);
+  crazy_cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("/cf3/cmd_vel_legacy", 10);
 
   // Setting QoS profile to get equivalent performance to ros::TransportHints().tcpNoDelay()
   rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
@@ -253,10 +256,10 @@ SO3CmdToCrazyflie::SO3CmdToCrazyflie(const rclcpp::NodeOptions &options)
   auto qos2 = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 1), qos_profile);
 
   so3_cmd_sub_ = this->create_subscription<kr_mav_msgs::msg::SO3Command>(
-      "/quadrotor/so3_cmd", qos2, std::bind(&SO3CmdToCrazyflie::so3_cmd_callback, this, std::placeholders::_1));
+      "/cf3/so3_cmd", qos2, std::bind(&SO3CmdToCrazyflie::so3_cmd_callback, this, std::placeholders::_1));
 
   odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-      "/quadrotor/odom", qos1, std::bind(&SO3CmdToCrazyflie::odom_callback, this, std::placeholders::_1));
+      "/cf3/odom", qos1, std::bind(&SO3CmdToCrazyflie::odom_callback, this, std::placeholders::_1));
   
   arm_client_ = this->create_client<crazyflie_interfaces::srv::Arm>("/cf3/arm");
 
