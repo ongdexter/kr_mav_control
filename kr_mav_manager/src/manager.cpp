@@ -283,7 +283,7 @@ bool MAVManager::takeoff()
   goal.relative = true;
   auto options = rclcpp_action::Client<LineTracker>::SendGoalOptions();
   options.result_callback = std::bind(&MAVManager::tracker_done_callback, this, _1);
-  line_tracker_distance_client_->async_send_goal(goal, options);
+  auto future  = line_tracker_distance_client_->async_send_goal(goal, options);
 
   if(this->transition(line_tracker_distance))
   {
@@ -989,7 +989,7 @@ bool MAVManager::transition(const std::string &tracker_str)
     RCLCPP_INFO(this->get_logger(), "Construction done.");
     RCLCPP_INFO(this->get_logger(), "Sent Tracker Transition request");
     auto future = std::async(std::launch::async, &MAVManager::send_transition_request, this, transition_cmd);
-    future.wait_for(std::chrono::seconds(1));
+    // future.wait_for(std::chrono::seconds(1));
     if(future.get())
     {
       active_tracker_ = tracker_str;

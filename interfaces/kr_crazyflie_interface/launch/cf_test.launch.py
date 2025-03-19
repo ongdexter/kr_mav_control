@@ -119,6 +119,7 @@ def generate_launch_description():
         DeclareLaunchArgument('robot', default_value='cf3'),
         DeclareLaunchArgument('odom', default_value='odom'),
         DeclareLaunchArgument('so3_cmd', default_value='so3_cmd'),
+        DeclareLaunchArgument('mass', default_value='.030'),
     ]
 
     # Initialize launch description with all arguments
@@ -187,6 +188,9 @@ def generate_launch_description():
             namespace=LaunchConfiguration('robot'),
             name="mav_services",
             output='screen',
+            parameters = [
+                {'mass': LaunchConfiguration('mass')},
+            ]
         )
     )
 

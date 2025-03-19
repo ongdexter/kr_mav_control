@@ -100,7 +100,7 @@ LifecycleCallbackReturn TrackersManager::on_configure(const rclcpp_lifecycle::St
   // Setting QoS profile to get equivalent performance to ros::TransportHints().tcpNoDelay()
   rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;
   auto qos = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 10), qos_profile);
-  sub_odom_ = this->create_subscription<nav_msgs::msg::Odometry>("~/odom", qos, std::bind(&TrackersManager::odom_callback, this, std::placeholders::_1));
+  sub_odom_ = this->create_subscription<nav_msgs::msg::Odometry>("/cf3/odom", qos, std::bind(&TrackersManager::odom_callback, this, std::placeholders::_1));
 
   srv_tracker_ = this->create_service<kr_tracker_msgs::srv::Transition>("~/transition", std::bind(&TrackersManager::transition_callback, this, std::placeholders::_1, std::placeholders::_2));
 

@@ -103,9 +103,13 @@ void LineTrackerDistance::Initialize(rclcpp_lifecycle::LifecycleNode::WeakPtr &p
 
 bool LineTrackerDistance::Activate(const kr_mav_msgs::msg::PositionCommand::ConstSharedPtr cmd)
 { 
+  RCLCPP_INFO(logger_, "In Activate 1");
   (void)cmd;
+  RCLCPP_INFO_STREAM(logger_, "pos_set_: " << pos_set_ );
+  RCLCPP_INFO_STREAM(logger_, "goal_set_: " << goal_set_ );
   if(goal_set_ && pos_set_)
   {
+    RCLCPP_INFO(logger_, "In Activate 2");
     {
       std::lock_guard<std::recursive_mutex> lock(mutex_);
       if(!current_goal_handle_ || !current_goal_handle_->is_active())
@@ -304,6 +308,13 @@ rclcpp_action::GoalResponse LineTrackerDistance::goal_callback(const rclcpp_acti
   // If another goal is already active, cancel that goal
   // and track this one instead
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  RCLCPP_INFO_STREAM(logger_, "current_goal_handle_: " << current_goal_handle_);
+
+  if (current_goal_handle_ == 0)  {
+    RCLCPP_INFO_STREAM(logger_, "Initialization of line tracker detected");
+    return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+  }
+
   if(current_goal_handle_ && current_goal_handle_->is_active())
   {
     RCLCPP_INFO(logger_, "LineTrackerDistance goal (%2.2f, %2.2f, %2.2f) preempted.", goal_(0), goal_(1), goal_(2));
@@ -315,6 +326,7 @@ rclcpp_action::GoalResponse LineTrackerDistance::goal_callback(const rclcpp_acti
     goal_reached_ = false;
   }
 
+  RCLCPP_INFO(logger_, "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
   return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
 
@@ -345,6 +357,7 @@ void LineTrackerDistance::handle_accepted_callback(const std::shared_ptr<LineTra
   }
 
   // Pointer to the goal received
+  RCLCPP_INFO_STREAM(logger_, "New Goal: " << goal_handle);
   current_goal_handle_ = goal_handle;
 
   auto goal = goal_handle->get_goal();
@@ -373,6 +386,7 @@ void LineTrackerDistance::handle_accepted_callback(const std::shared_ptr<LineTra
 
   goal_set_ = true;
   goal_reached_ = false;
+  RCLCPP_INFO_STREAM(logger_, "Out of HAC: ");
 }
 
 uint8_t LineTrackerDistance::status()
