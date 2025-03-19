@@ -40,7 +40,8 @@ MAVManager::MAVManager()
       need_imu_(false),
       need_output_data_(true),
       need_odom_(true),
-      use_attitude_safety_catch_(true)
+      use_attitude_safety_catch_(true),
+      last_heartbeat_t_initialized_(false)
 {
   // Declaring parameters
   this->declare_parameter("server_wait_timeout", 0.5f);
@@ -124,14 +125,12 @@ MAVManager::MAVManager()
   cb_group_ = this->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   srv_transition_ = this->create_client<kr_tracker_msgs::srv::Transition>("trackers_manager/transition",
                                                                           rmw_qos_profile_services_default, cb_group_);
-  RCLCPP_INFO(this->get_logger(), "1!!!!!!!!!!!!!!");
 
   srv_transition_->wait_for_service();
   if(!this->transition(null_tracker_str))
   {
     RCLCPP_FATAL(this->get_logger(), "Activation of NullTracker failed.");
   }
-  RCLCPP_INFO(this->get_logger(), "2!!!!!!!!!!!!!!");
 
   // Load params after we are sure that we have stuff loaded
   if(!this->get_parameter("need_imu", need_imu_))
@@ -143,7 +142,6 @@ MAVManager::MAVManager()
     imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>("quad_decode_msg/imu", 10,
                                                                 std::bind(&MAVManager::imu_cb, this, _1));
   }
-  RCLCPP_INFO(this->get_logger(), "3!!!!!!!!!!!!!!");
 
   if(!this->get_parameter("need_output_data", need_output_data_))
   {
@@ -154,13 +152,11 @@ MAVManager::MAVManager()
     output_data_sub_ = this->create_subscription<kr_mav_msgs::msg::OutputData>(
         "quad_decode_msg/output_data", 10, std::bind(&MAVManager::output_data_cb, this, _1));
   }
-  RCLCPP_INFO(this->get_logger(), "4!!!!!!!!!!!!!!");
 
   if(!this->get_parameter("use_attitide_safety_catch", use_attitude_safety_catch_))
   {
     RCLCPP_WARN(this->get_logger(), "Couldn't find use_attitude_safety_catch param");
   }
-  RCLCPP_INFO(this->get_logger(), "5!!!!!!!!!!!!!!");
 
   double m;
   if(!this->get_parameter("mass", m))
@@ -175,7 +171,6 @@ MAVManager::MAVManager()
   {
     RCLCPP_ERROR(this->get_logger(), "Mass failed to set. Perhaps mass <= 0?");
   }
-  RCLCPP_INFO(this->get_logger(), "6!!!!!!!!!!!!!!");
 
   this->get_parameter("odom_timeout", odom_timeout_);
 
@@ -184,7 +179,6 @@ MAVManager::MAVManager()
     RCLCPP_ERROR(this->get_logger(), "Could not disable motors");
   }
   construction_done = true;
-  RCLCPP_INFO(this->get_logger(), "construction of mav services done!!!!!!!!!!!!!!");
 }
 
 void MAVManager::tracker_done_callback(const LineTrackerGoalHandle::WrappedResult &result)
@@ -243,16 +237,20 @@ void MAVManager::odometry_cb(nav_msgs::msg::Odometry::ConstSharedPtr msg)
 
 bool MAVManager::takeoff()
 {
+
+  RCLCPP_INFO(this->get_logger(), "Received TAKEOFF");
   if(!this->have_recent_odom())
   {
     RCLCPP_WARN(this->get_logger(), "Cannot takeoff without odometry.");
     return false;
   }
+  RCLCPP_INFO(this->get_logger(), "Received TAKEOFF 1");
 
   if(!this->setHome())
   {
     return false;
   }
+  RCLCPP_INFO(this->get_logger(), "Received TAKEOFF 2");
 
   if(!this->motors() || status_ != IDLE)
   {
@@ -754,10 +752,17 @@ void MAVManager::heartbeat_cb(std_msgs::msg::Empty::ConstSharedPtr msg)
 // TODO: This should be done in a separate thread
 void MAVManager::heartbeat()
 {
+
   const float freq = 10;  // Hz
 
   // Only need to do monitoring at the specified frequency
   rclcpp::Time t = this->now();
+
+  if (!last_heartbeat_t_initialized_) {
+    last_heartbeat_t_ = t;
+    return;
+  }
+
   float dt = (t - last_heartbeat_t_).seconds();
   if(dt < 1 / freq)
     return;
@@ -963,20 +968,6 @@ bool MAVManager::transition(const std::string &tracker_str)
   if(!construction_done)
   {
     auto future = srv_transition_->async_send_request(transition_cmd);
-    //auto future = std::async(std::launch::async, &MAVManager::send_transition_request, this, transition_cmd);
-    //future.wait_for(std::chrono::seconds(1));
-    //RCLCPP_INFO(this->get_logger(), "Not construction done.");
-    //RCLCPP_INFO(this->get_logger(), "Sent Tracker Transition request.");
-    //// future.wait_for(std::chrono::seconds(1));
-    //if(future.get())
-    //{
-    //  active_tracker_ = tracker_str;
-    //  RCLCPP_INFO(this->get_logger(), "Current tracker: %s", tracker_str.c_str());
-    //  RCLCPP_INFO(this->get_logger(), "Returning from Transition");
-    //  return true;
-    //}
-  
-
     rclcpp::FutureReturnCode frc = rclcpp::spin_until_future_complete(this->get_node_base_interface(), future);
     RCLCPP_INFO(this->get_logger(), "Done spinning until future complete");
     if(frc == rclcpp::FutureReturnCode::SUCCESS)

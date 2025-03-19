@@ -143,7 +143,7 @@ def generate_launch_description():
                 {'publish_pts': False},
                 {'fixed_frame_id': 'mocap'},
                 # Set to [''] to take in ALL models from Vicon
-                {'model_list': ['']},
+                {'model_list': ['cf3']},
             ],
             remappings=[
                 # Uncomment and modify the remapping if needed

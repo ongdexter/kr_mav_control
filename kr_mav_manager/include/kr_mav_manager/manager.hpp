@@ -176,7 +176,7 @@ class MAVManager : public rclcpp::Node
   Vec3 home_, goal_;
   float home_yaw_;
 
-  bool need_imu_, need_output_data_, need_odom_, use_attitude_safety_catch_;
+  bool need_imu_, need_output_data_, need_odom_, use_attitude_safety_catch_, last_heartbeat_t_initialized_;
   bool home_set_, motors_;
   float voltage_, pressure_height_, pressure_dheight_;
   std::array<float, 3> magnetic_field_;
