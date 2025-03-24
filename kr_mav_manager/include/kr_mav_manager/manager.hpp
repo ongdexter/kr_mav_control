@@ -85,6 +85,7 @@ class MAVManager : public rclcpp::Node
 
   // Movement
   bool takeoff();
+  bool send_takeoff_request(std::shared_ptr<kr_tracker_msgs::action::LineTracker::Goal>);
 
   bool goTo(float x, float y, float z, float yaw, float v_des = 0.0f, float a_des = 0.0f, bool relative = false);
   bool goTo(Vec4 xyz_yaw, Vec2 v_and_a_des = Vec2::Zero());
@@ -177,7 +178,7 @@ class MAVManager : public rclcpp::Node
   float home_yaw_;
 
   bool need_imu_, need_output_data_, need_odom_, use_attitude_safety_catch_, last_heartbeat_t_initialized_;
-  bool home_set_, motors_;
+  bool home_set_, motors_, goal_sent_;
   float voltage_, pressure_height_, pressure_dheight_;
   std::array<float, 3> magnetic_field_;
   std::array<uint8_t, 8> radio_;

@@ -33,7 +33,7 @@ class LineTrackerDistance : public kr_trackers_manager::Tracker
 
   rclcpp_action::GoalResponse goal_callback(const rclcpp_action::GoalUUID &uuid, std::shared_ptr<const LineTracker::Goal> goal);
   rclcpp_action::CancelResponse cancel_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle);
-  void handle_accepted_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle);
+  rclcpp_action::ResultCode handle_accepted_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle);
 
   rclcpp_action::Server<LineTracker>::SharedPtr tracker_server_;
   rclcpp::CallbackGroup::SharedPtr cb_group_;
@@ -312,6 +312,7 @@ rclcpp_action::GoalResponse LineTrackerDistance::goal_callback(const rclcpp_acti
 
   if (current_goal_handle_ == 0)  {
     RCLCPP_INFO_STREAM(logger_, "Initialization of line tracker detected");
+    goal_set_ = false;
     return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
   }
 
@@ -342,7 +343,7 @@ rclcpp_action::CancelResponse LineTrackerDistance::cancel_callback(const std::sh
   return rclcpp_action::CancelResponse::ACCEPT;
 }
 
-void LineTrackerDistance::handle_accepted_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle)
+rclcpp_action::ResultCode LineTrackerDistance::handle_accepted_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle)
 {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
 
@@ -387,6 +388,9 @@ void LineTrackerDistance::handle_accepted_callback(const std::shared_ptr<LineTra
   goal_set_ = true;
   goal_reached_ = false;
   RCLCPP_INFO_STREAM(logger_, "Out of HAC: ");
+  auto result = std::make_shared<kr_tracker_msgs::action::LineTracker::Result>();
+  goal_handle->succeed(result);
+  return rclcpp_action::ResultCode::SUCCEEDED;
 }
 
 uint8_t LineTrackerDistance::status()
