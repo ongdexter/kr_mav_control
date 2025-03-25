@@ -1,4 +1,5 @@
 #include "kr_mav_controllers/SO3Control.hpp"
+#include <iostream>
 
 SO3Control::SO3Control()
     : mass_(0.5),
@@ -56,6 +57,7 @@ void SO3Control::calculateControl(const Eigen::Vector3f &des_pos, const Eigen::V
                                   const float des_yaw_dot, const Eigen::Vector3f &kx, const Eigen::Vector3f &kv,
                                   const Eigen::Vector3f &ki, const Eigen::Vector3f &ki_b)
 {
+
   const Eigen::Vector3f e_pos = des_pos - pos_;
   const Eigen::Vector3f e_vel = des_vel - vel_;
 

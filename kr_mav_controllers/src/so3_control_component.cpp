@@ -64,6 +64,12 @@ void SO3ControlComponent::publishSO3Command()
     kib = config_kib_;
   }
 
+  // RCLCPP_INFO_STREAM(this->get_logger(), "des_pos_: " << des_pos_);
+  // RCLCPP_INFO_STREAM(this->get_logger(), "des_vel_: " << des_vel_);
+  // RCLCPP_INFO_STREAM(this->get_logger(), "des_pos_: " << des_acc_);
+  // RCLCPP_INFO_STREAM(this->get_logger(), "des_jrk_: " << des_jrk_);
+  // RCLCPP_INFO_STREAM(this->get_logger(), "des_yaw_: " << des_yaw_);
+
   controller_.calculateControl(des_pos_, des_vel_, des_acc_, des_jrk_, des_yaw_, des_yaw_dot_, kx_, kv_, ki, kib);
 
   const Eigen::Vector3f &force = controller_.getComputedForce();

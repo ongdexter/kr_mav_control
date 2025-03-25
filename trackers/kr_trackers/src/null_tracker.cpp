@@ -33,7 +33,8 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr NullTracker::update(const nav_
 {
   // Return a null message (will not publish the position command)
   
-  return std::make_shared<kr_mav_msgs::msg::PositionCommand>();
+  // return std::make_shared<kr_mav_msgs::msg::PositionCommand>();
+  return kr_mav_msgs::msg::PositionCommand::ConstSharedPtr();
 }
 
 uint8_t NullTracker::status()
