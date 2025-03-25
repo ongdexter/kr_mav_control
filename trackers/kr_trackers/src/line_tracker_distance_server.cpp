@@ -33,7 +33,7 @@ class LineTrackerDistance : public kr_trackers_manager::Tracker
 
   rclcpp_action::GoalResponse goal_callback(const rclcpp_action::GoalUUID &uuid, std::shared_ptr<const LineTracker::Goal> goal);
   rclcpp_action::CancelResponse cancel_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle);
-  rclcpp_action::ResultCode handle_accepted_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle);
+  void handle_accepted_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle);
 
   rclcpp_action::Server<LineTracker>::SharedPtr tracker_server_;
   rclcpp::CallbackGroup::SharedPtr cb_group_;
@@ -119,6 +119,7 @@ bool LineTrackerDistance::Activate(const kr_mav_msgs::msg::PositionCommand::Cons
         return active_;
       }
     }
+    RCLCPP_INFO(logger_, "In Activate 3");
 
     // Set start and start_yaw here so that even if the goal was sent at a
     // different position, we still use the current position as start
@@ -130,6 +131,7 @@ bool LineTrackerDistance::Activate(const kr_mav_msgs::msg::PositionCommand::Cons
 
     active_ = true;
   }
+  RCLCPP_INFO(logger_, "In Activate 4");
   return active_;
 }
 
@@ -187,28 +189,37 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerDistance::update(co
   result->duration = current_traj_duration_;
   result->length = current_traj_length_;
   result_ = result;
+  RCLCPP_INFO_STREAM(logger_, "goal_reached_" << goal_reached_);
+  RCLCPP_INFO(logger_, "UPDATE 1");
 
-  if(current_goal_handle_ && current_goal_handle_->is_canceling())
-  {
-    RCLCPP_INFO(logger_, "LineTrackerDistance going to goal (%2.2f, %2.2f, %2.2f) canceled.", goal_(0), goal_(1), goal_(2));
-  
-    current_goal_handle_->canceled(result);
-    goal_ = pos_;
-    goal_set_ = false;
-    goal_reached_ = false;
-    return kr_mav_msgs::msg::PositionCommand::ConstSharedPtr();
+  if (current_goal_handle_) {
+    if(current_goal_handle_ && current_goal_handle_->is_canceling())
+    {
+      RCLCPP_INFO(logger_, "LineTrackerDistance going to goal (%2.2f, %2.2f, %2.2f) canceled.", goal_(0), goal_(1), goal_(2));
+    
+      current_goal_handle_->canceled(result);
+      goal_ = pos_;
+      goal_set_ = false;
+      goal_reached_ = false;
+      return kr_mav_msgs::msg::PositionCommand::ConstSharedPtr();
+    }
   }
+  RCLCPP_INFO(logger_, "UPDATE 2");
 
   auto cmd = std::make_shared<kr_mav_msgs::msg::PositionCommand>();
   cmd->header.stamp = clock_->now();
   cmd->header.frame_id = msg->header.frame_id;
   cmd->yaw = start_yaw_;
 
+  RCLCPP_INFO(logger_, "UPDATE 3");
   if(goal_reached_)
   {
-    if(current_goal_handle_->is_active())
-    {
-      RCLCPP_ERROR(logger_, "LineTrackerDistance::update: Action server not completed.\n");
+    // RCLCPP_INFO_STREAM(logger_, "current_goal_handle: "<< current_goal_handle_);
+    if (current_goal_handle_) {
+      if(current_goal_handle_->is_active())
+      {
+        RCLCPP_ERROR(logger_, "LineTrackerDistance::update: Action server not completed.\n");
+      }
     }
 
     cmd->position.x = goal_(0), cmd->position.y = goal_(1), cmd->position.z = goal_(2);
@@ -219,6 +230,7 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerDistance::update(co
     return cmd;
   }
 
+  RCLCPP_INFO(logger_, "UPDATE 4");
   const Eigen::Vector3f dir = (goal_ -  start_).normalized();
   const float total_dist = (goal_ - start_).norm();
   const float d = (pos_ - start_).dot(dir);
@@ -229,8 +241,12 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerDistance::update(co
 
   Eigen::Vector3f x(pos_), v(Eigen::Vector3f::Zero()), a(Eigen::Vector3f::Zero());
 
+  RCLCPP_INFO_STREAM(logger_, "pos_: " << pos_);
+  RCLCPP_INFO_STREAM(logger_, "goal_: " <<  goal_);
+
   if((pos_ - goal_).norm() <= epsilon_) // Reached goal
   {
+    RCLCPP_INFO(logger_, "UPDATE 5");
     // Send success message and reset the length and duration variables
     result->duration = current_traj_duration_;
     result->length = current_traj_length_;
@@ -253,6 +269,7 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerDistance::update(co
   }
   else if(d > total_dist)  // Overshoot
   {
+    RCLCPP_INFO(logger_, "UPDATE 6");
     RCLCPP_DEBUG_THROTTLE(logger_, *clock_, 1000, "Overshoot");
     a = -a_des_ * dir;
     v = Eigen::Vector3f::Zero();
@@ -260,6 +277,7 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerDistance::update(co
   }
   else if(d >= (total_dist - ramp_dist) && d <= total_dist) // Decelerate
   {
+    RCLCPP_INFO(logger_, "UPDATE 7");
     RCLCPP_DEBUG_THROTTLE(logger_, *clock_, 1000, "Decelerate");
     a = -a_des_ * dir;
     v = std::sqrt(2 * a_des_ * (total_dist - d)) * dir;
@@ -267,6 +285,7 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerDistance::update(co
   }
   else if(d > ramp_dist && d < total_dist - ramp_dist) // Constant velocity
   {
+    RCLCPP_INFO(logger_, "UPDATE 8");
     RCLCPP_DEBUG_THROTTLE(logger_, *clock_, 1000, "Constant velocity");
     a = Eigen::Vector3f::Zero();
     v = v_max * dir;
@@ -274,6 +293,7 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerDistance::update(co
   }
   else if(d >= 0 && d <= ramp_dist) // Accelerate
   {
+    RCLCPP_INFO(logger_, "UPDATE 9");
     RCLCPP_DEBUG_THROTTLE(logger_, *clock_, 1000, "Accelerate");
     a = a_des_ * dir;
     v = std::sqrt(2 * a_des_ * d) * dir;
@@ -281,6 +301,7 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerDistance::update(co
   }
   else if(d < 0)
   {
+    RCLCPP_INFO(logger_, "UPDATE 10");
     RCLCPP_DEBUG_THROTTLE(logger_, *clock_, 1000, "Undershoot");
     a = a_des_ * dir;
     v = Eigen::Vector3f::Zero();
@@ -293,11 +314,13 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerDistance::update(co
 
   if(!goal_reached_)
   {
+    RCLCPP_INFO(logger_, "UPDATE 11");
     auto feedback = std::make_shared<LineTracker::Feedback>();
     feedback->distance_from_goal = (pos_ - goal_).norm();
     current_goal_handle_->publish_feedback(feedback);
   }
 
+  RCLCPP_INFO(logger_, "UPDATE 12");
   return cmd;
 }
 
@@ -460,7 +483,7 @@ rclcpp_action::CancelResponse LineTrackerDistance::cancel_callback(const std::sh
   return rclcpp_action::CancelResponse::ACCEPT;
 }
 
-rclcpp_action::ResultCode LineTrackerDistance::handle_accepted_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle)
+void LineTrackerDistance::handle_accepted_callback(const std::shared_ptr<LineTrackerGoalHandle> goal_handle)
 {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   
@@ -478,7 +501,14 @@ uint8_t LineTrackerDistance::status()
 {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
 
-  return current_goal_handle_->is_active() ? static_cast<uint8_t>(kr_tracker_msgs::msg::TrackerStatus::ACTIVE) : static_cast<uint8_t>(kr_tracker_msgs::msg::TrackerStatus::SUCCEEDED);
+  if (!current_goal_handle_) {
+    return static_cast<uint8_t>(kr_tracker_msgs::msg::TrackerStatus::SUCCEEDED);
+  }
+  
+  return current_goal_handle_->is_active() ? 
+    static_cast<uint8_t>(kr_tracker_msgs::msg::TrackerStatus::ACTIVE) : 
+    static_cast<uint8_t>(kr_tracker_msgs::msg::TrackerStatus::SUCCEEDED);
+
 }
 
 #include "pluginlib/class_list_macros.hpp"

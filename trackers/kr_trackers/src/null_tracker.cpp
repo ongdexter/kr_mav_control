@@ -32,6 +32,7 @@ void NullTracker::Deactivate(void) {}
 kr_mav_msgs::msg::PositionCommand::ConstSharedPtr NullTracker::update(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
   // Return a null message (will not publish the position command)
+  
   return std::make_shared<kr_mav_msgs::msg::PositionCommand>();
 }
 

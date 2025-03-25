@@ -29,7 +29,7 @@ def generate_launch_description():
         namespace=LaunchConfiguration('namespace'),
         package="rclcpp_components",
         executable="component_container_mt",
-        # prefix=['xterm -e gdb --args'],
+        #prefix=['xterm -e gdb --args'],
         composable_node_descriptions= [
             ComposableNode(
                 package="kr_trackers_manager",

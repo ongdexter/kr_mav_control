@@ -51,7 +51,7 @@ MAVManager::MAVManager()
   this->declare_parameter("max_attitude_angle", rclcpp::PARAMETER_DOUBLE);
   this->declare_parameter("mass", rclcpp::PARAMETER_DOUBLE);
   this->declare_parameter("odom_timeout", 0.1f);
-  this->declare_parameter("takeoff_height", 0.1);
+  this->declare_parameter("takeoff_height", 0.5);
   this->declare_parameter("robot", "cf3");
 
   std::string robot_name = this->get_parameter("robot").as_string();
@@ -102,9 +102,9 @@ MAVManager::MAVManager()
   // Publishers
   pub_motors_ = this->create_publisher<std_msgs::msg::Bool>("motors", 10);
   pub_estop_ = this->create_publisher<std_msgs::msg::Empty>("estop", 10);
-  pub_so3_command_ = this->create_publisher<kr_mav_msgs::msg::SO3Command>("so3_cmd", 10);
+  pub_so3_command_ = this->create_publisher<kr_mav_msgs::msg::SO3Command>("/cf3/so3_controller/so3_cmd", 10);
   pub_trpy_command_ = this->create_publisher<kr_mav_msgs::msg::TRPYCommand>("trpy_cmd", 10);
-  pub_position_command_ = this->create_publisher<kr_mav_msgs::msg::PositionCommand>("position_cmd", 10);
+  pub_position_command_ = this->create_publisher<kr_mav_msgs::msg::PositionCommand>("/cf3/trackers_manager/cmd", 10);
   pub_status_ = this->create_publisher<std_msgs::msg::UInt8>("~/status", 10);
   pub_goal_velocity_ =
       this->create_publisher<kr_tracker_msgs::msg::VelocityGoal>("trackers_manager/velocity_tracker/goal", 10);
@@ -278,79 +278,52 @@ bool MAVManager::takeoff()
 
   RCLCPP_INFO(this->get_logger(), "Initiating launch sequence...");
 
-  auto goal = std::make_shared<LineTracker::Goal>();
-  goal->z = takeoff_height_;
-  goal->relative = true;
+  auto goal = LineTracker::Goal();
+  goal.z = takeoff_height_;
+  goal.relative = true;
   
-  // Result callback
-  // send_goal_options.result_callback =
-  //     [this](const rclcpp_action::ClientGoalHandle<LineTracker>::WrappedResult & result) {
-  //         RCLCPP_INFO(this->get_logger(), " IN LAMBDA");
-  //         switch (result.code) {
-  //             case rclcpp_action::ResultCode::SUCCEEDED:
-  //                 RCLCPP_INFO(this->get_logger(), "Takeoff successful");
-  //                 if(this->transition(line_tracker_distance))
-  //                 {
-  //                   status_ = FLYING;
-  //                   return true;
-  //                 }
-  //                 else
-  //                   return false;
-  //                 break;
-  //             case rclcpp_action::ResultCode::ABORTED:
-  //                 RCLCPP_ERROR(this->get_logger(), "Takeoff aborted");
-  //                 break;
-  //             case rclcpp_action::ResultCode::CANCELED:
-  //                 RCLCPP_ERROR(this->get_logger(), "Takeoff canceled");
-  //                 break;
-  //             default:
-  //                 RCLCPP_ERROR(this->get_logger(), "Unknown result code");
-  //                 break;
-  //         }
-  //     };
-  ///////
-  // line_tracker_distance_client_->async_send_goal(goal, send_goal_options);
-  // std::this_thread::sleep_for(std::chrono::seconds(1));
-  // if(this->transition(line_tracker_distance))
-  // {
-  //   status_ = FLYING;
-  //   return true;
-  // }
-  // else
-  //   return false;
-  // return true;
-
-  auto future = std::async(std::launch::async, &MAVManager::send_takeoff_request, this, goal);
-  if(future.get())
+  auto send_goal_options = rclcpp_action::Client<LineTracker>::SendGoalOptions();
+    
+  // Goal response callback
+  send_goal_options.goal_response_callback =
+      [this](const rclcpp_action::ClientGoalHandle<LineTracker>::SharedPtr & goal_handle) {
+          if (!goal_handle) {
+              RCLCPP_ERROR(this->get_logger(), "Goal was rejected by server");
+          } else {
+              RCLCPP_INFO(this->get_logger(), "Goal accepted by server, waiting for result");
+              std::this_thread::sleep_for(std::chrono::milliseconds(100));
+              return true;
+          }
+      };
+  line_tracker_distance_client_->async_send_goal(goal, send_goal_options);
+  std::this_thread::sleep_for(std::chrono::seconds(1));
+  if(this->transition(line_tracker_distance))
   {
-    RCLCPP_INFO(this->get_logger(), "got trueeeeeee");
-    if(this->transition(line_tracker_distance))
-    {
-      status_ = FLYING;
-      return true;
-    }
-    else
-      return false;
+    status_ = FLYING;
+    return true;
   }
+  else
+    return false;
+  return true;
+
+  // auto future = std::async(std::launch::async, &MAVManager::send_takeoff_request, this, goal);
+  // if(future.get())
+  // {
+  //   RCLCPP_INFO(this->get_logger(), "got trueeeeeee");
+  //   if(this->transition(line_tracker_distance))
+  //   {
+  //     status_ = FLYING;
+  //     return true;
+  //   }
+  //   else
+  //     return false;
+  // }
 }
 
 bool MAVManager::send_takeoff_request(std::shared_ptr<kr_tracker_msgs::action::LineTracker::Goal> goal)
 {
 
   // // Create goal options with lambda callbacks
-  // auto send_goal_options = rclcpp_action::Client<LineTracker>::SendGoalOptions();
-  //   
-  // // Goal response callback
-  // send_goal_options.goal_response_callback =
-  //     [this](const rclcpp_action::ClientGoalHandle<LineTracker>::SharedPtr & goal_handle) {
-  //         if (!goal_handle) {
-  //             RCLCPP_ERROR(this->get_logger(), "Goal was rejected by server");
-  //         } else {
-  //             RCLCPP_INFO(this->get_logger(), "Goal accepted by server, waiting for result");
-  //             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-  //             return true;
-  //         }
-  //     };
   RCLCPP_INFO(this->get_logger(), "IN SEND TAKEOFF REQ");
   auto future = line_tracker_distance_client_->async_send_goal(*goal);
   try

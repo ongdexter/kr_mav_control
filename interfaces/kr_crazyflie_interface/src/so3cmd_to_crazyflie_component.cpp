@@ -256,7 +256,7 @@ SO3CmdToCrazyflie::SO3CmdToCrazyflie(const rclcpp::NodeOptions &options)
   auto qos2 = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 1), qos_profile);
 
   so3_cmd_sub_ = this->create_subscription<kr_mav_msgs::msg::SO3Command>(
-      "/cf3/so3_cmd", qos2, std::bind(&SO3CmdToCrazyflie::so3_cmd_callback, this, std::placeholders::_1));
+      "/cf3/so3_controller/so3_cmd", qos2, std::bind(&SO3CmdToCrazyflie::so3_cmd_callback, this, std::placeholders::_1));
 
   odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
       "/cf3/odom", qos1, std::bind(&SO3CmdToCrazyflie::odom_callback, this, std::placeholders::_1));
