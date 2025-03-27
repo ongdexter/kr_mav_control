@@ -404,6 +404,43 @@ rclcpp_action::GoalResponse LineTrackerMinJerk::goal_callback(const rclcpp_actio
     goal_reached_ = false;
   }
 
+  if(current_goal_handle_ && preempt_requested_)
+  {
+    if(current_goal_handle_->get_goal_id() == preempted_goal_id_)
+    {
+      RCLCPP_INFO(logger_, "LineTrackerMinJerk going to goal (%2.2f, %2.2f, %2.2f) aborted.", goal_(0), goal_(1), goal_(2));
+      current_goal_handle_->abort(result_);
+      preempt_requested_ = false;
+    }
+  }
+  goal_(0) = goal->x;
+  goal_(1) = goal->y;
+  goal_(2) = goal->z;
+  goal_yaw_ = goal->yaw;
+  goal_duration_ = goal->duration;
+  if(goal->t_start != rclcpp::Time())
+  {
+    traj_start_ = goal->t_start;
+    traj_start_set_ = true;
+  }
+  else
+    traj_start_set_ = false;
+
+  if(goal->relative)
+  {
+    goal_ += ICs_.pos();
+    goal_yaw_ += ICs_.yaw();
+    RCLCPP_INFO(logger_, "line_tracker_min_jerk using relative command");
+  }
+
+  v_des_ = (goal->v_des > 0.0) ? goal->v_des : default_v_des_;
+  a_des_ = (goal->a_des > 0.0) ? goal->a_des : default_a_des_;
+
+  RCLCPP_DEBUG(logger_, "line_tracker_min_jerk using v_des = %2.2f m/s and a_des = %2.2f m/s^2", v_des_, a_des_);
+
+  goal_set_ = true;
+  goal_reached_ = false;
+
   return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
 
@@ -423,47 +460,11 @@ void LineTrackerMinJerk::handle_accepted_callback(const std::shared_ptr<LineTrac
 {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
 
-  if(current_goal_handle_ && preempt_requested_)
-  {
-    if(current_goal_handle_->get_goal_id() == preempted_goal_id_)
-    {
-      RCLCPP_INFO(logger_, "LineTrackerMinJerk going to goal (%2.2f, %2.2f, %2.2f) aborted.", goal_(0), goal_(1), goal_(2));
-      current_goal_handle_->abort(result_);
-      preempt_requested_ = false;
-    }
-  }
 
   // Pointer to the goal received
   current_goal_handle_ = goal_handle;
 
-  auto msg = goal_handle->get_goal();
-  goal_(0) = msg->x;
-  goal_(1) = msg->y;
-  goal_(2) = msg->z;
-  goal_yaw_ = msg->yaw;
-  goal_duration_ = msg->duration;
-  if(msg->t_start != rclcpp::Time())
-  {
-    traj_start_ = msg->t_start;
-    traj_start_set_ = true;
-  }
-  else
-    traj_start_set_ = false;
-
-  if(msg->relative)
-  {
-    goal_ += ICs_.pos();
-    goal_yaw_ += ICs_.yaw();
-    RCLCPP_INFO(logger_, "line_tracker_min_jerk using relative command");
-  }
-
-  v_des_ = (msg->v_des > 0.0) ? msg->v_des : default_v_des_;
-  a_des_ = (msg->a_des > 0.0) ? msg->a_des : default_a_des_;
-
-  RCLCPP_DEBUG(logger_, "line_tracker_min_jerk using v_des = %2.2f m/s and a_des = %2.2f m/s^2", v_des_, a_des_);
-
-  goal_set_ = true;
-  goal_reached_ = false;
+  // auto msg = goal_handle->get_goal();
 }
 
 void LineTrackerMinJerk::gen_trajectory(const Eigen::Vector3f &xi, const Eigen::Vector3f &xf, const Eigen::Vector3f &vi,

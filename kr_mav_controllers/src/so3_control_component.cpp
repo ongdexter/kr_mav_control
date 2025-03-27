@@ -363,14 +363,16 @@ SO3ControlComponent::SO3ControlComponent(const rclcpp::NodeOptions &options)
   controller_.resetIntegrals();
 
   this->declare_parameter("quadrotor_name", std::string("quadrotor"));
-  this->declare_parameter("mass", 0.5f);
+  this->declare_parameter("mass", 0.03f);
 
   std::string quadrotor_name;
   this->get_parameter("quadrotor_name", quadrotor_name);
   frame_id_ = "/" + quadrotor_name;
   this->get_parameter("mass", mass_);
 
+
   controller_.setMass(mass_);
+  RCLCPP_INFO_STREAM(this->get_logger(), "MASS FROM SO3: " << mass_);
   controller_.setGravity(g_);
 
   this->declare_parameter("use_external_yaw", true);

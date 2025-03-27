@@ -430,7 +430,7 @@ bool MAVManager::goTo(float x, float y, float z, float yaw, float v_des, float a
   options.result_callback = std::bind(&MAVManager::tracker_done_callback, this, _1);
 
   line_tracker_min_jerk_client_->async_send_goal(goal, options);
-
+  std::this_thread::sleep_for(std::chrono::seconds(1));
   return this->transition(line_tracker_min_jerk);
 }
 
