@@ -383,6 +383,7 @@ void LineTrackerDistance::handle_accepted_callback(const std::shared_ptr<LineTra
   
   current_goal_handle_ = goal_handle;
   
+  RCLCPP_INFO_STREAM(logger_, "Out of HAC: ");
 }
 
 uint8_t LineTrackerDistance::status()

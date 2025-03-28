@@ -119,9 +119,11 @@ bool LineTrackerMinJerk::Activate(const kr_mav_msgs::msg::PositionCommand::Const
 {
   (void)cmd;
 
+  RCLCPP_INFO(logger_, "LTMJ ACTIVATE 1");
   // Only allow activation if a goal has been set
   if(goal_set_ && pos_set_)
   {
+  RCLCPP_INFO(logger_, "LTMJ ACTIVATE 2");
     {
       std::lock_guard<std::recursive_mutex> lock_(mutex_);
       if(!current_goal_handle_ || !current_goal_handle_->is_active())
@@ -132,9 +134,11 @@ bool LineTrackerMinJerk::Activate(const kr_mav_msgs::msg::PositionCommand::Const
       }
       active_ = true;
 
+  RCLCPP_INFO(logger_, "LTMJ ACTIVATE 3");
       current_traj_length_ = 0.0;
     }
   }
+  RCLCPP_INFO(logger_, "LTMJ ACTIVATE 4");
   return active_;
 }
 
@@ -191,7 +195,6 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerMinJerk::update(con
   if(current_goal_handle_ && current_goal_handle_->is_canceling())
   {
     RCLCPP_INFO(logger_, "LineTrackerDistance going to goal (%2.2f, %2.2f, %2.2f) canceled.", goal_(0), goal_(1), goal_(2));
-
     current_goal_handle_->canceled(result);
     goal_ = current_pos_;
     goal_set_ = false;
@@ -209,11 +212,14 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerMinJerk::update(con
       traj_start_ = t_now;
 
     bool duration_set = false;
+    RCLCPP_INFO(logger_, "setting traj_duration_ here first");
     traj_duration_ = 0.5f;
+    RCLCPP_INFO_STREAM(logger_, "traj_duration: " << traj_duration_);
 
     // TODO: This should probably be after traj_duration_ is determined
     if(goal_duration_.seconds() > traj_duration_)
     {
+      RCLCPP_INFO(logger_, "setting traj_duration_ here second");
       traj_duration_ = goal_duration_.seconds();
       duration_set = true;
     }
@@ -238,7 +244,9 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerMinJerk::update(con
                   + (total_dist - ramping_distance) / v_des_  // Constant velocity
                   + v_des_ / a_des_;                          // Ramp down
 
+        RCLCPP_INFO(logger_, "setting traj_duration_ here third");
         traj_duration_ = std::max(traj_duration_, t);
+        RCLCPP_INFO_STREAM(logger_, "traj_duration: " << traj_duration_);
       }
       else
       {
@@ -260,6 +268,8 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerMinJerk::update(con
 
           t_dir = -vo / a_des_ + std::sqrt(2.0f) * std::sqrt(vo * vo + 2.0f * a_des_ * total_dist) / a_des_;
         }
+
+        RCLCPP_INFO(logger_, "setting traj_duration_ here fourth");
         traj_duration_ = std::max(traj_duration_, t_dir);
 
         // The velocity component orthogonal to dir
@@ -267,6 +277,7 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerMinJerk::update(con
         float t_non_dir = v_ortho / a_des_                       // Ramp to zero velocity
                           + std::sqrt(2.0f) * v_ortho / a_des_;  // Get back to the dir line
 
+        RCLCPP_INFO(logger_, "setting traj_duration_ here 1");
         traj_duration_ = std::max(traj_duration_, t_non_dir);
       }
     }
@@ -287,10 +298,19 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerMinJerk::update(con
     // Consider yaw in the trajectory duration
     if(!duration_set)  // Only if duration is not set from goal
     {
-      if(yaw_dist > yaw_v_des_ * yaw_v_des_ / yaw_a_des_)
+      if(yaw_dist > yaw_v_des_ * yaw_v_des_ / yaw_a_des_) {
+        RCLCPP_INFO(logger_, "setting traj_duration_ here 2");
         traj_duration_ = std::max(traj_duration_, yaw_dist / yaw_v_des_ + yaw_v_des_ / yaw_a_des_);
-      else
-        traj_duration_ = std::max(traj_duration_, 2 * std::sqrt(yaw_dist / yaw_a_des_));
+      } else {
+        // HERE IS THE PROBLEM
+        RCLCPP_INFO(logger_, "setting traj_duration_ here 3");
+        if (yaw_a_des_ != 0) {
+          traj_duration_ = std::max(traj_duration_, 2 * std::sqrt(yaw_dist / yaw_a_des_));
+        }
+        RCLCPP_INFO_STREAM(logger_, "traj_duration: " << traj_duration_);
+        RCLCPP_INFO_STREAM(logger_, "yaw_dist: " << yaw_dist);
+        RCLCPP_INFO_STREAM(logger_, "yaw_a_des: " << yaw_a_des_);
+      }
     }
 
     // TODO: Should consider yaw_dot_. See hover() in MAVManager
@@ -436,7 +456,7 @@ rclcpp_action::GoalResponse LineTrackerMinJerk::goal_callback(const rclcpp_actio
   v_des_ = (goal->v_des > 0.0) ? goal->v_des : default_v_des_;
   a_des_ = (goal->a_des > 0.0) ? goal->a_des : default_a_des_;
 
-  RCLCPP_DEBUG(logger_, "line_tracker_min_jerk using v_des = %2.2f m/s and a_des = %2.2f m/s^2", v_des_, a_des_);
+  RCLCPP_INFO(logger_, "line_tracker_min_jerk using v_des = %2.2f m/s and a_des = %2.2f m/s^2", v_des_, a_des_);
 
   goal_set_ = true;
   goal_reached_ = false;
@@ -464,6 +484,7 @@ void LineTrackerMinJerk::handle_accepted_callback(const std::shared_ptr<LineTrac
   // Pointer to the goal received
   current_goal_handle_ = goal_handle;
 
+  RCLCPP_INFO_STREAM(logger_, "Out of HAC: ");
   // auto msg = goal_handle->get_goal();
 }
 

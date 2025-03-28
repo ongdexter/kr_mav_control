@@ -169,12 +169,14 @@ void TrackersManager::transition_callback(const kr_tracker_msgs::srv::Transition
     RCLCPP_INFO_STREAM(this->get_logger(), res->message);
     return;
   }
+  RCLCPP_INFO(this->get_logger(), "TRANSITION CALLBACK 2:");
 
   if(active_tracker_ != NULL)
   {
     active_tracker_->Deactivate();
   }
 
+  RCLCPP_INFO(this->get_logger(), "TRANSITION CALLBACK 3:");
   active_tracker_ = it->second;
   res->success = true;
   res->message = std::string("Successfully activated tracker ") + req->tracker;

@@ -282,20 +282,9 @@ bool MAVManager::takeoff()
   goal.z = takeoff_height_;
   goal.relative = true;
   
-  auto send_goal_options = rclcpp_action::Client<LineTracker>::SendGoalOptions();
-    
-  // Goal response callback
-  send_goal_options.goal_response_callback =
-      [this](const rclcpp_action::ClientGoalHandle<LineTracker>::SharedPtr & goal_handle) {
-          if (!goal_handle) {
-              RCLCPP_ERROR(this->get_logger(), "Goal was rejected by server");
-          } else {
-              RCLCPP_INFO(this->get_logger(), "Goal accepted by server, waiting for result");
-              std::this_thread::sleep_for(std::chrono::milliseconds(100));
-              return true;
-          }
-      };
-  line_tracker_distance_client_->async_send_goal(goal, send_goal_options);
+  auto options = rclcpp_action::Client<LineTracker>::SendGoalOptions();
+  options.result_callback = std::bind(&MAVManager::tracker_done_callback, this, _1);
+  line_tracker_distance_client_->async_send_goal(goal, options);
   std::this_thread::sleep_for(std::chrono::seconds(1));
   if(this->transition(line_tracker_distance))
   {
@@ -306,38 +295,6 @@ bool MAVManager::takeoff()
     return false;
   return true;
 
-  // auto future = std::async(std::launch::async, &MAVManager::send_takeoff_request, this, goal);
-  // if(future.get())
-  // {
-  //   RCLCPP_INFO(this->get_logger(), "got trueeeeeee");
-  //   if(this->transition(line_tracker_distance))
-  //   {
-  //     status_ = FLYING;
-  //     return true;
-  //   }
-  //   else
-  //     return false;
-  // }
-}
-
-bool MAVManager::send_takeoff_request(std::shared_ptr<kr_tracker_msgs::action::LineTracker::Goal> goal)
-{
-
-  // // Create goal options with lambda callbacks
-  RCLCPP_INFO(this->get_logger(), "IN SEND TAKEOFF REQ");
-  auto future = line_tracker_distance_client_->async_send_goal(*goal);
-  try
-  {
-    RCLCPP_INFO(this->get_logger(), "IN TRY");
-    auto response = future.get();
-    return true;
-  }
-  catch(const std::exception &e)
-  {
-    RCLCPP_INFO(this->get_logger(), "IN CATCH");
-    RCLCPP_WARN(this->get_logger(), "Transition callback failed");
-  }
-  return false;
 }
 
 bool MAVManager::set_mass(float m)
