@@ -1,0 +1,32 @@
+port_name: /dev/ttyUSB0
+enable_receiving_sbus_messages: true
+control_command_timeout: 0.5 # [s] (Must be larger than 'state_estimate_timeout'
+# set in the 'flight_controller'!)
+rc_timeout: 0.1 # [s]
+mass: 0.70 # [kg]
+disable_thrust_mapping: true
+use_body_rates: false
+# thrust_vs_rpm_cof_a_: 1.338e-06 # gf
+# thrust_vs_rpm_cof_b_: -4.472e-3 # gf
+# thrust_vs_rpm_cof_c_: 8.051 # gf
+thrust_vs_rpm_cof_a_: 1.31212977e-08 # N
+thrust_vs_rpm_cof_b_: -4.38553e-05 # N
+thrust_vs_rpm_cof_c_: 7.89533392e-02 # N
+rpm_vs_throttle_linear_coeff_a_: 17.6
+rpm_vs_throttle_linear_coeff_b_: -15875
+rpm_vs_throttle_quadratic_coeff_a_: -30169.81
+rpm_vs_throttle_quadratic_coeff_b_: 35.43775
+rpm_vs_throttle_quadratic_coeff_c_: -0.004962819
+# Maximum values for body rates and roll and pitch angles as they are set
+# on the Flight Controller. The max roll an pitch angles are only active
+# when flying in angle mode
+max_roll_rate: 1000.0 # [deg/s]
+max_pitch_rate: 1000.0 # [deg/s]
+max_yaw_rate: 1000.0 # [deg/s]
+max_roll_angle: 50 # [deg]
+max_pitch_angle: 50 # [deg]
+alpha_vbat_filter: 0.01
+perform_thrust_voltage_compensation: false
+thrust_ratio_voltage_map_a: -0.17044342 # [1/V]
+thrust_ratio_voltage_map_b: 3.10495276 # [-]
+n_lipo_cells: 3 # [-]
