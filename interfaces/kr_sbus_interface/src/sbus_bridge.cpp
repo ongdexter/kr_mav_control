@@ -18,7 +18,7 @@ SBusBridge::SBusBridge(const ros::NodeHandle& nh, const ros::NodeHandle& pnh)
       time_last_sbus_msg_sent_(ros::Time::now()),
       time_last_battery_voltage_received_(ros::Time::now()),
       time_last_active_control_command_received_(),
-      bridge_state_(BridgeState::OFF),
+      bridge_state_(BridgeState::KILL),
       control_mode_(ControlMode::NONE),
       arming_counter_(0),
       battery_voltage_(0.0),
@@ -140,13 +140,17 @@ void SBusBridge::watchdogThread() {
     //   }
     // }
 
-    if (bridge_state_ == BridgeState::OFF) {
+    if (bridge_state_ == BridgeState::KILL) {
       // Send off message that disarms the vehicle
       // We repeat it to prevent any weird behavior that occurs if the flight
       // controller is not receiving commands for a while
-      SBusMsg off_msg;
-      off_msg.setArmStateDisarmed();
-      sendSBusMessageToSerialPort(off_msg);
+      SBusMsg kill_msg;
+      kill_msg.setArmStateDisarmed();
+      sendSBusMessageToSerialPort(kill_msg);
+      // disarm bridge if needed
+      if (bridge_armed_) {
+        disarmBridge();
+      }
     }
 
     // Check battery voltage timeout
@@ -194,7 +198,7 @@ void SBusBridge::handleReceivedSbusMessage(const SBusMsg& received_sbus_msg)
     if (bridge_state_ == BridgeState::KILL)
     {
       // send disarm to FC to kill motors
-      sendSBusMessageToSerialPort(received_sbus_msg);
+    //   sendSBusMessageToSerialPort(received_sbus_msg);
 
       return;
     }
@@ -247,6 +251,10 @@ void SBusBridge::handleReceivedSbusMessage(const SBusMsg& received_sbus_msg)
           "[%s] RC was disarmed once, now it is allowed to take over control",
           pnh_.getNamespace().c_str());
       rc_was_disarmed_once_ = true;
+    }
+    else if (bridge_state_ != BridgeState::AUTONOMOUS_FLIGHT) {
+      // not killed, not armed, not autonomous flight
+      sendSBusMessageToSerialPort(received_sbus_msg);
     }
 
     // Main mutex is unlocked here because it goes out of scope
@@ -435,6 +443,9 @@ SBusMsg SBusBridge::generateSBusMessageFromSO3Command(const kr_mav_msgs::SO3Comm
 {
   SBusMsg sbus_msg;
 
+  // set sbus_msg to not killed
+  sbus_msg.channels[sbus_bridge::channel_mapping::kKillSwitch] = 1792;
+
   sbus_msg.setArmStateArmed();
 
   // grab desired forces and rotation from so3
@@ -590,14 +601,19 @@ void SBusBridge::setBridgeState(const BridgeState& desired_bridge_state) {
 
 void SBusBridge::armBridge() 
 {
-  std::lock_guard<std::mutex> main_lock(main_mutex_);
+  std::lock_guard<std::mutex> main_lock(arm_mutex_);
   bridge_armed_ = true;
 }
 
 void SBusBridge::disarmBridge()
 {
-  std::lock_guard<std::mutex> main_lock(main_mutex_);
+  std::lock_guard<std::mutex> main_lock(arm_mutex_);
   bridge_armed_ = false;
+}
+
+bool SBusBridge::isBridgeArmed() const
+{
+  return bridge_armed_;
 }
 
 void SBusBridge::batteryVoltageCallback(

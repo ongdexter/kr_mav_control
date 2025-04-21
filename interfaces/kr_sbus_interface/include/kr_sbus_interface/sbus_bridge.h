@@ -34,6 +34,7 @@ class SBusBridge : public SBusSerialPort
   void controlCommandCallback(const kr_mav_msgs::SO3Command::ConstPtr &msg, const Eigen::Quaterniond &odom_q);
   void armBridge();
   void disarmBridge();
+  bool isBridgeArmed() const;
 
   virtual ~SBusBridge();
 
@@ -70,6 +71,7 @@ class SBusBridge : public SBusSerialPort
   // Also "setBridgeState" and "sendSBusMessageToSerialPort" should only be
   // called when "main_mutex_" is locked
   mutable std::mutex main_mutex_;
+  mutable std::mutex arm_mutex_;
   // Mutex for:
   // - battery_voltage_
   // - time_last_battery_voltage_received_
