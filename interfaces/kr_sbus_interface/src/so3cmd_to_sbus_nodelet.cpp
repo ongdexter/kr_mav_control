@@ -152,10 +152,14 @@ void SO3CmdToSbus::so3_cmd_callback(const kr_mav_msgs::SO3Command::ConstPtr &msg
     so3_cmd_set_ = true;
 
   // switch on motors
-  if(msg->aux.enable_motors && !motor_status_)
+  if(msg->aux.enable_motors && !sbus_bridge_.isBridgeArmed() && !motor_status_)
+  {
     motors_on();
+  }
   else if(!msg->aux.enable_motors)
+  {
     motors_off();
+  }
 
   sbus_bridge_.controlCommandCallback(msg, odom_q_);
 
