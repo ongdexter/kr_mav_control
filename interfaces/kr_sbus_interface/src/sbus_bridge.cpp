@@ -4,15 +4,13 @@
 
 #include <kr_sbus_interface/channel_mapping.h>
 
-// #include <nav_msgs/msg/odometry.hpp>
 #include <tf2/LinearMath/Matrix3x3.h>
-
-#include <yaml-cpp/yaml.h>
 
 namespace sbus_bridge {
 
   SBusBridge::SBusBridge(const rclcpp::Node::SharedPtr& node)
     : node_(node),
+      logger_(node->get_logger()),
       stop_watchdog_thread_(false),
       time_last_rc_msg_received_(),
       time_last_sbus_msg_sent_(node_->now()),
@@ -654,6 +652,7 @@ bool SBusBridge::loadParameters()
       !node_->get_parameter("rpm_vs_throttle_quadratic_coeff_b_", rpm_vs_throttle_quadratic_coeff_b_) ||
       !node_->get_parameter("rpm_vs_throttle_quadratic_coeff_c_", rpm_vs_throttle_quadratic_coeff_c_) ||
       !node_->get_parameter("use_body_rates", use_body_rates_)) {
+    RCLCPP_ERROR(logger_, "Failed to load one or more parameters.");
     return false;
   }
   return true;
