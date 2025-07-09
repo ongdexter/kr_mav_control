@@ -11,12 +11,14 @@ class SBusSerialPort {
  public:
   SBusSerialPort();
   SBusSerialPort(const std::string& port,
-                 const bool start_receiver_thread);
+                 const bool start_receiver_thread,
+                 const rclcpp::Clock::SharedPtr& clock = nullptr);
   virtual ~SBusSerialPort();
 
  protected:
   bool setUpSBusSerialPort(const std::string& port,
-                           const bool start_receiver_thread);
+                           const bool start_receiver_thread,
+                           const rclcpp::Clock::SharedPtr& clock = nullptr);
 
   bool connectSerialPort(const std::string& port);
   void disconnectSerialPort();
@@ -44,6 +46,7 @@ class SBusSerialPort {
 
   int serial_port_fd_;
   rclcpp::Logger logger_ = rclcpp::get_logger("sbus_serial_port");
+  rclcpp::Clock::SharedPtr clock_;
 };
 
 }  // namespace sbus_bridge

@@ -34,7 +34,7 @@ namespace sbus_bridge {
 
   // Start serial port with receiver thread if receiving sbus messages is
   // enabled
-  if (!setUpSBusSerialPort(port_name_, enable_receiving_sbus_messages_)) {
+  if (!setUpSBusSerialPort(port_name_, enable_receiving_sbus_messages_, node->get_clock())) {
     rclcpp::shutdown();
     return;
   }
@@ -49,6 +49,8 @@ namespace sbus_bridge {
     rclcpp::shutdown();
     return;
   }
+
+  RCLCPP_INFO(logger_, "SBusBridge initialized");
 }
 
 SBusBridge::~SBusBridge() {
@@ -157,7 +159,7 @@ void SBusBridge::handleReceivedSbusMessage(const SBusMsg &received_sbus_msg)
   {
     std::lock_guard<std::mutex> main_lock(main_mutex_);
 
-    time_last_rc_msg_received_ = rclcpp::Clock().now();
+    time_last_rc_msg_received_ = node_->now();
 
     if (received_sbus_msg.isKillSwitch())
     {
@@ -255,7 +257,7 @@ void SBusBridge::controlCommandCallback(
   }
 
   // may need more logic @TODO
-  time_last_active_control_command_received_ = rclcpp::Clock().now();
+  time_last_active_control_command_received_ = node_->now();
 
   if (!bridge_armed_ || bridge_state_ != BridgeState::AUTONOMOUS_FLIGHT)
   {    
@@ -375,7 +377,7 @@ void SBusBridge::sendSBusMessageToSerialPort(const SBusMsg& sbus_msg)
       break;
   }
 
-  if ((rclcpp::Clock().now() - time_last_sbus_msg_sent_).seconds() <= 0.006) {
+  if ((node_->now() - time_last_sbus_msg_sent_).seconds() <= 0.006) {
     // An SBUS message takes 3ms to be transmitted by the serial port so let's
     // not stress it too much. This should only happen in case of switching
     // between control commands and rc commands
@@ -389,9 +391,9 @@ void SBusBridge::sendSBusMessageToSerialPort(const SBusMsg& sbus_msg)
     return;
   }
 
-  sbus_message_to_send.timestamp = rclcpp::Clock().now();
+  sbus_message_to_send.timestamp = node_->now();
   transmitSerialSBusMessage(sbus_message_to_send);
-  time_last_sbus_msg_sent_ = rclcpp::Clock().now();
+  time_last_sbus_msg_sent_ = node_->now();
 }
 
 static std::pair<double, double> solve_quadratic(double a, double b, double c)

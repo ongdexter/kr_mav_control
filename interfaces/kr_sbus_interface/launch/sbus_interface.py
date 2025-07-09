@@ -35,7 +35,7 @@ def generate_launch_description():
                     ('odom',   odom_topic),
                     ('so3_cmd', so3_cmd_topic),
                 ],
-                parameters=[config_file, {'port_name': '/dev/ttyTHS0'}],
+                parameters=[config_file],
             ),
         ],
         output='screen',

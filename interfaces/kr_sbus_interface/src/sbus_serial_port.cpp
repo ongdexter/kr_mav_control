@@ -14,25 +14,29 @@
 namespace sbus_bridge {
 
 SBusSerialPort::SBusSerialPort()
-    : receiver_thread_should_exit_(false),
-      serial_port_fd_(-1) {
-  // Optional: Initialize with default values
+    : receiver_thread_(),
+      receiver_thread_should_exit_(false),
+      serial_port_fd_(-1),
+      clock_(nullptr) {
   logger_ = rclcpp::get_logger("sbus_serial_port");
 }
 
 SBusSerialPort::SBusSerialPort(const std::string& port,
-                               const bool start_receiver_thread)
+                               const bool start_receiver_thread,
+                               const rclcpp::Clock::SharedPtr& clock)
     : receiver_thread_(),
       receiver_thread_should_exit_(false),
-      serial_port_fd_(-1) {
-  setUpSBusSerialPort(port, start_receiver_thread);
+      serial_port_fd_(-1),
+      clock_(clock) {
   logger_ = rclcpp::get_logger("sbus_serial_port");
 }
 
 SBusSerialPort::~SBusSerialPort() { disconnectSerialPort(); }
 
 bool SBusSerialPort::setUpSBusSerialPort(const std::string& port,
-                                         const bool start_receiver_thread) {
+                                         const bool start_receiver_thread,
+                                         const rclcpp::Clock::SharedPtr& clock) {
+  clock_ = clock;
   if (!connectSerialPort(port)) {
     return false;
   }
@@ -69,7 +73,10 @@ bool SBusSerialPort::connectSerialPort(const std::string& port) {
 
 void SBusSerialPort::disconnectSerialPort() {
   stopReceiverThread();
-  close(serial_port_fd_);
+  if (serial_port_fd_ != -1) {
+    close(serial_port_fd_);
+    serial_port_fd_ = -1;
+  }
 }
 
 bool SBusSerialPort::startReceiverThread() {
@@ -317,7 +324,11 @@ SBusMsg SBusSerialPort::parseSbusMessage(
     uint8_t sbus_msg_bytes[kSbusFrameLength_]) const {
   SBusMsg sbus_msg;
 
-  sbus_msg.timestamp = rclcpp::Clock().now();
+  if (clock_) {
+    sbus_msg.timestamp = clock_->now();
+  } else {
+    sbus_msg.timestamp = rclcpp::Clock().now();
+  }
 
   // Decode the 16 regular channels
   sbus_msg.channels[0] =
