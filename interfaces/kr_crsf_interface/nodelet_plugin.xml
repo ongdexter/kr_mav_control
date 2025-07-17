@@ -1,0 +1,7 @@
+<library path="lib/libkr_crsf_interface">
+  <class name="kr_crsf_interface/SO3CmdToCRSF" type="SO3CmdToCRSF" base_class_type="nodelet::Nodelet">
+    <description>
+      This takes a so3_command and sends it to the robot using the CRSF Bridge
+    </description>
+  </class>
+</library>
