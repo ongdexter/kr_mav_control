@@ -38,27 +38,27 @@ void CrsfMsg::limitCrsfChannelFeasible(const int channel_idx) {
 
 void CrsfMsg::setThrottleCommand(const uint16_t throttle_cmd) {
   // Update with CRSF channel mapping if needed
-  channels[0] = throttle_cmd;
+  channels[crsf_channel_mapping::kThrottle] = throttle_cmd;
 }
 
 void CrsfMsg::setRollCommand(const uint16_t roll_cmd) {
-  channels[1] = roll_cmd;
+  channels[crsf_channel_mapping::kRoll] = roll_cmd;
 }
 
 void CrsfMsg::setPitchCommand(const uint16_t pitch_cmd) {
-  channels[2] = pitch_cmd;
+  channels[crsf_channel_mapping::kPitch] = pitch_cmd;
 }
 
 void CrsfMsg::setYawCommand(const uint16_t yaw_cmd) {
-  channels[3] = yaw_cmd;
+  channels[crsf_channel_mapping::kYaw] = yaw_cmd;
 }
 
 void CrsfMsg::setControlMode(const ControlMode& control_mode) {
   // Update with CRSF-specific logic if needed
   if (control_mode == ControlMode::ATTITUDE) {
-    channels[4] = kMinCmd;
+    channels[crsf_channel_mapping::kControlMode] = kMinCmd;
   } else if (control_mode == ControlMode::BODY_RATES) {
-    channels[4] = kMaxCmd;
+    channels[crsf_channel_mapping::kControlMode] = kMaxCmd;
   }
 }
 
@@ -72,9 +72,9 @@ void CrsfMsg::setControlModeBodyRates() {
 
 void CrsfMsg::setArmState(const ArmState& arm_state) {
   if (arm_state == ArmState::ARMED) {
-    channels[5] = kMaxCmd;
+    channels[crsf_channel_mapping::kArming] = kMaxCmd;
   } else {
-    channels[5] = kMinCmd;
+    channels[crsf_channel_mapping::kArming] = kMinCmd;
   }
 }
 
@@ -86,15 +86,15 @@ void CrsfMsg::setArmStateDisarmed() {
 }
 
 bool CrsfMsg::isArmed() const {
-  return channels[5] > kMeanCmd;
+  return channels[crsf_channel_mapping::kArming] > kMeanCmd;
 }
 
 bool CrsfMsg::isKillSwitch() const {
-  return channels[6] <= kMeanCmd;
+  return channels[crsf_channel_mapping::kKillSwitch] <= kMeanCmd;
 }
 
 ControlMode CrsfMsg::getControlMode() const {
-  if (channels[4] > kMeanCmd) {
+  if (channels[crsf_channel_mapping::kControlMode] > kMeanCmd) {
     return ControlMode::BODY_RATES;
   }
   return ControlMode::ATTITUDE;

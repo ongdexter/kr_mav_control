@@ -140,6 +140,7 @@ bool CrsfSerialPort::configureSerialPortForCrsf() const {
   const speed_t spd = 420000;
   uart_config.c_ispeed = spd;
   uart_config.c_ospeed = spd;
+  RCLCPP_INFO(logger_, "Setting CRSF serial port baud rate to %d", (int)spd);
 
   if (ioctl(serial_port_fd_, TCSETS2, &uart_config) < 0) {
     RCLCPP_ERROR(logger_, "Could not set configuration of serial port");
@@ -162,23 +163,33 @@ void CrsfSerialPort::transmitSerialCrsfMessage(const CrsfMsg& crsf_msg) const {
     }
     uint8_t* payload = &frame[3];
     memset(payload, 0, CRSF_RC_CHANNELS_PAYLOAD_SIZE);
-    uint32_t bit_ofs = 0;
+    
+    // Proper bit packing for 11-bit channels
+    uint32_t bit_pos = 0;
     for (int ch = 0; ch < 16; ++ch) {
-        uint16_t val = chans[ch] & 0x07FF;
-        int byte_idx = bit_ofs / 8;
-        int bit_idx = bit_ofs % 8;
-        payload[byte_idx] |= val << bit_idx;
-        if (bit_idx > 5) {
-            payload[byte_idx + 1] |= val >> (8 - bit_idx);
+        uint16_t val = chans[ch] & 0x07FF;  // 11-bit mask
+        
+        // Calculate byte and bit positions
+        uint32_t byte_pos = bit_pos / 8;
+        uint32_t bit_offset = bit_pos % 8;
+        
+        // Write the 11-bit value
+        if (bit_offset <= 5) {
+            // Value fits in current byte and part of next byte
+            payload[byte_pos] |= (val << bit_offset) & 0xFF;
+            payload[byte_pos + 1] |= (val >> (8 - bit_offset)) & 0xFF;
+        } else {
+            // Value spans three bytes
+            payload[byte_pos] |= (val << bit_offset) & 0xFF;
+            payload[byte_pos + 1] |= (val >> (8 - bit_offset)) & 0xFF;
+            payload[byte_pos + 2] |= (val >> (16 - bit_offset)) & 0xFF;
         }
-        if (bit_idx > -3) {
-            payload[byte_idx + 2] |= val >> (16 - bit_idx);
-        }
-        bit_ofs += 11;
+        
+        bit_pos += 11;
     }
 
-    // CRC over [address, length, type, payload]
-    frame[CRSF_RC_CHANNELS_FRAME_SIZE - 1] = crsf_crc8(frame, CRSF_RC_CHANNELS_FRAME_SIZE - 1);
+    // CRC over [type, payload] (not address + length)
+    frame[CRSF_RC_CHANNELS_FRAME_SIZE - 1] = crsf_crc8(&frame[2], CRSF_RC_CHANNELS_FRAME_SIZE - 3);
 
     int written = write(serial_port_fd_, frame, CRSF_RC_CHANNELS_FRAME_SIZE);
     if (written != (int)CRSF_RC_CHANNELS_FRAME_SIZE) {
@@ -191,6 +202,7 @@ void CrsfSerialPort::serialPortReceiveThread() {
     fds[0].fd = serial_port_fd_;
     fds[0].events = POLLIN;
     std::deque<uint8_t> bytes_buf;
+    
     while (!receiver_thread_should_exit_) {
         uint8_t read_buf[128];
         if (poll(fds, 1, kPollTimeoutMilliSeconds_) > 0) {
@@ -199,30 +211,67 @@ void CrsfSerialPort::serialPortReceiveThread() {
                 for (ssize_t i = 0; i < nread; ++i) {
                     bytes_buf.push_back(read_buf[i]);
                 }
-                // Try to extract CRSF frames
-                while (bytes_buf.size() >= CRSF_RC_CHANNELS_FRAME_SIZE) {
-                    // Look for header
-                    if (bytes_buf[0] == CRSF_ADDRESS_FC &&
-                        bytes_buf[2] == CRSF_TYPE_RC_CHANNELS_PACKED &&
-                        bytes_buf[1] == CRSF_RC_CHANNELS_PAYLOAD_SIZE + 2) {
-                        // Check CRC
-                        uint8_t frame[CRSF_RC_CHANNELS_FRAME_SIZE];
-                        for (size_t i = 0; i < CRSF_RC_CHANNELS_FRAME_SIZE; ++i) {
-                            frame[i] = bytes_buf[i];
-                        }
-                        uint8_t crc = crsf_crc8(frame, CRSF_RC_CHANNELS_FRAME_SIZE - 1);
-                        if (crc == frame[CRSF_RC_CHANNELS_FRAME_SIZE - 1]) {
-                            // Valid frame
-                            CrsfMsg msg = parseCrsfMessage(&frame[3]);
-                            if (clock_) msg.timestamp = clock_->now();
-                            else msg.timestamp = rclcpp::Clock().now();
-                            handleReceivedCrsfMessage(msg);
-                            for (size_t i = 0; i < CRSF_RC_CHANNELS_FRAME_SIZE; ++i) bytes_buf.pop_front();
-                            continue;
+                
+                // Try to extract CRSF frames with proper synchronization
+                while (bytes_buf.size() >= 3) {  // Need at least address + length + type
+                    // Look for any valid CRSF address (0xC8 or 0xEE)
+                    if (bytes_buf[0] == 0xC8 || bytes_buf[0] == 0xEE) {
+                        uint8_t frame_length = bytes_buf[1];
+                        uint8_t total_frame_size = frame_length + 2;  // +2 for address and length bytes
+                        
+                        // Validate frame length and ensure we have the complete frame
+                        if (frame_length >= 2 && frame_length <= 64 &&  // Reasonable length bounds
+                            bytes_buf.size() >= total_frame_size) {     // Wait for complete frame
+                            
+                            // Check if this is an RC channels frame
+                            if (bytes_buf[2] == CRSF_TYPE_RC_CHANNELS_PACKED) {
+                                // Extract the complete frame
+                                uint8_t frame[total_frame_size];
+                                for (size_t i = 0; i < total_frame_size; ++i) {
+                                    frame[i] = bytes_buf[i];
+                                }
+                                
+                                // Check CRC - only process frames with valid CRC
+                                uint8_t crc = crsf_crc8(&frame[2], frame_length - 1);  // CRC over type + payload only
+                                if (crc == frame[frame_length + 1]) {
+                                    // Valid frame - parse and process
+                                    CrsfMsg msg = parseCrsfMessage(&frame[3]);  // Skip address, length, type
+                                    if (clock_) msg.timestamp = clock_->now();
+                                    else msg.timestamp = rclcpp::Clock().now();
+                                    
+                                    RCLCPP_DEBUG(logger_, "Valid CRSF frame - Address: %02X, Length: %d, Type: %02X", 
+                                               frame[0], frame[1], frame[2]);
+                                    handleReceivedCrsfMessage(msg);
+                                } else {
+                                    // CRC mismatch - log and discard
+                                    RCLCPP_WARN(logger_, "CRSF frame CRC mismatch - discarding frame");
+                                }
+                                
+                                // Remove the processed frame (regardless of CRC result)
+                                for (size_t i = 0; i < total_frame_size; ++i) {
+                                    bytes_buf.pop_front();
+                                }
+                                continue;
+                            } else {
+                                // Not an RC channels frame - remove and continue
+                                for (size_t i = 0; i < total_frame_size; ++i) {
+                                    bytes_buf.pop_front();
+                                }
+                                continue;
+                            }
+                        } else {
+                            // Incomplete frame - wait for more data
+                            break;
                         }
                     }
-                    // Not a valid frame, pop one byte
+                    // Not a valid frame start, pop one byte and continue searching
                     bytes_buf.pop_front();
+                }
+                
+                // Prevent buffer from growing too large
+                if (bytes_buf.size() > 256) {
+                    RCLCPP_WARN(logger_, "Buffer overflow, clearing buffer");
+                    bytes_buf.clear();
                 }
             }
         }
@@ -231,23 +280,50 @@ void CrsfSerialPort::serialPortReceiveThread() {
 
 CrsfMsg CrsfSerialPort::parseCrsfMessage(const uint8_t* payload) const {
     CrsfMsg msg;
-    // Unpack 16 channels (11 bits each) from 22 bytes
-    uint32_t bit_ofs = 0;
-    for (int ch = 0; ch < 16; ++ch) {
-        int byte_idx = bit_ofs / 8;
-        int bit_idx = bit_ofs % 8;
-        uint16_t val = (payload[byte_idx] >> bit_idx) | (payload[byte_idx + 1] << (8 - bit_idx));
-        if (bit_idx > 5) {
-            val |= (payload[byte_idx + 2] << (16 - bit_idx));
-        }
-        msg.channels[ch] = val & 0x07FF;
-        bit_ofs += 11;
+    const unsigned numOfChannels = 16;
+    const unsigned srcBits = 11;
+    const unsigned inputChannelMask = (1 << srcBits) - 1;
+
+    // Initialize all channels to safe default values (center position)
+    for (uint8_t n = 0; n < numOfChannels; n++) {
+        msg.channels[n] = 1024;  // Center position (2048/2)
     }
+
+    uint8_t bitsMerged = 0;
+    uint32_t readValue = 0;
+    unsigned readByteIndex = 0;
+    
+    for (uint8_t n = 0; n < numOfChannels; n++) {
+        while (bitsMerged < srcBits) {
+            if (readByteIndex >= CRSF_RC_CHANNELS_PAYLOAD_SIZE) {
+                RCLCPP_ERROR(logger_, "Payload buffer overflow during channel parsing");
+                return msg;  // Return safe default values
+            }
+            uint8_t readByte = payload[readByteIndex++];
+            readValue |= ((uint32_t) readByte) << bitsMerged;
+            bitsMerged += 8;
+        }
+        
+        uint16_t channelValue = (readValue & inputChannelMask);
+        
+        // Validate channel value is within reasonable bounds
+        if (channelValue <= 2047) {  // 11-bit max value
+            msg.channels[n] = channelValue;
+        } else {
+            RCLCPP_WARN(logger_, "Invalid channel %d value: %d, using default", n, channelValue);
+            msg.channels[n] = 1024;  // Center position
+        }
+        
+        readValue >>= srcBits;
+        bitsMerged -= srcBits;
+    }
+    
     // No digital channels, frame_lost, or failsafe in CRSF RC frame
     msg.digital_channel_1 = false;
     msg.digital_channel_2 = false;
     msg.frame_lost = false;
     msg.failsafe = false;
+    
     return msg;
 }
 

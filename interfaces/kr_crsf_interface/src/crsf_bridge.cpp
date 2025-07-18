@@ -109,35 +109,46 @@ void CrsfBridge::handleReceivedCrsfMessage(const CrsfMsg &received_crsf_msg)
 {
   {
     std::lock_guard<std::mutex> main_lock(main_mutex_);
+
     time_last_rc_msg_received_ = node_->now();
+
     if (received_crsf_msg.isKillSwitch())
     {
       if (bridge_state_ != BridgeState::KILL)
       {
         setBridgeState(BridgeState::KILL);
         RCLCPP_INFO(logger_, "Kill switch ON");
-      }
+      }      
     }
     else
     {
-      if (bridge_state_ == BridgeState::KILL)
-      {
-        setBridgeState(BridgeState::OFF);
-        RCLCPP_WARN(logger_, "Kill switch OFF");
-      }
+        if (bridge_state_ == BridgeState::KILL)
+        {
+            setBridgeState(BridgeState::OFF);
+            RCLCPP_WARN(logger_, "Kill switch OFF");
+        }
     }
+
     if (bridge_state_ == BridgeState::KILL)
     {
+      // send disarm to FC to kill motors
+    //   sendCrsfMessageToSerialPort(received_crsf_msg);
+
       return;
     }
+
     if (received_crsf_msg.isArmed()) 
     {
       if (!rc_was_disarmed_once_) {
+        // This flag prevents that the vehicle can be armed if the RC is armed
+        // on startup of the bridge
         RCLCPP_WARN_THROTTLE(
             logger_, *node_->get_clock(), 1.0,
             "RC needs to be disarmed once before it can take over control");
         return;
       }
+
+      // Immediately go into RC_FLIGHT state since RC always has priority
       if (bridge_state_ != BridgeState::RC_FLIGHT) {
         setBridgeState(BridgeState::RC_FLIGHT);
         RCLCPP_INFO(logger_, "Control authority taken over by remote control.");
@@ -145,7 +156,42 @@ void CrsfBridge::handleReceivedCrsfMessage(const CrsfMsg &received_crsf_msg)
       sendCrsfMessageToSerialPort(received_crsf_msg);
       control_mode_ = received_crsf_msg.getControlMode();
     }
+    else if (bridge_state_ == BridgeState::RC_FLIGHT)
+    {
+      // If the bridge was in state RC_FLIGHT and the RC is disarmed we set the
+      // state to AUTONOMOUS_FLIGHT
+      // In case there are valid control commands, the bridge will stay in
+      // AUTONOMOUS_FLIGHT, otherwise the watchdog will set the state to OFF      
+      RCLCPP_INFO(logger_, "Control authority returned by remote control.");
+      if (bridge_armed_)
+      {
+        RCLCPP_INFO(logger_, "Bridge armed, setting bridge state to AUTONOMOUS_FLIGHT");
+        setBridgeState(BridgeState::AUTONOMOUS_FLIGHT);
+      }
+      else
+      {
+        // When switching the bridge state to off, our watchdog ensures that a
+        // disarming off message is sent
+        RCLCPP_INFO(logger_, "Bridge not armed, setting bridge state to OFF");
+        setBridgeState(BridgeState::OFF);
+      }
+    }
+    else if (!rc_was_disarmed_once_)
+    {
+      RCLCPP_INFO(
+          logger_,
+          "Received disarmed RC message but RC was not disarmed once, ignoring it");
+      rc_was_disarmed_once_ = true;
+    }
+    else if (bridge_state_ != BridgeState::AUTONOMOUS_FLIGHT) {
+      // not killed, not armed, not autonomous flight
+      sendCrsfMessageToSerialPort(received_crsf_msg);
+    }
+
+    // Main mutex is unlocked here because it goes out of scope
   }
+
+//   received_crsf_msg_pub_.publish(received_crsf_msg.toRosMessage());
 }
 
 void CrsfBridge::controlCommandCallback(
@@ -226,6 +272,7 @@ void CrsfBridge::sendCrsfMessageToSerialPort(const CrsfMsg& crsf_msg)
 
     case BridgeState::RC_FLIGHT:
       // Passing RC command straight through
+    //   RCLCPP_INFO(logger_, "RC MODE: throttle_cmd %d", crsf_message_to_send.channels[crsf_bridge::crsf_channel_mapping::kThrottle]);
       crsf_message_to_send.setControlModeAttitude();
       break;
 
@@ -243,7 +290,7 @@ void CrsfBridge::sendCrsfMessageToSerialPort(const CrsfMsg& crsf_msg)
   }
 
   if ((node_->now() - time_last_crsf_msg_sent_).seconds() <= 0.006) {
-    // An SBUS message takes 3ms to be transmitted by the serial port so let's
+    // An CRSF message takes 3ms to be transmitted by the serial port so let's
     // not stress it too much. This should only happen in case of switching
     // between control commands and rc commands
     if (bridge_state_ == BridgeState::ARMING) {
@@ -289,7 +336,7 @@ CrsfMsg CrsfBridge::generateCrsfMessageFromSO3Command(const kr_mav_msgs::msg::SO
   CrsfMsg crsf_msg;
 
   // set crsf_msg to not killed
-  crsf_msg.channels[crsf_bridge::channel_mapping::kKillSwitch] = 1792;
+  crsf_msg.channels[crsf_bridge::crsf_channel_mapping::kKillSwitch] = 1792;
 
   crsf_msg.setArmStateArmed();
 
@@ -494,6 +541,107 @@ bool CrsfBridge::loadParameters()
   node_->declare_parameter("rpm_vs_throttle_quadratic_coeff_b_", 0.0);
   node_->declare_parameter("rpm_vs_throttle_quadratic_coeff_c_", 0.0);
   node_->declare_parameter("use_body_rates", false);
+  
+  // Get parameters
+  bool all_params_loaded = true;
+
+  if (!node_->get_parameter("port_name", port_name_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: port_name");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("enable_receiving_crsf_messages", enable_receiving_crsf_messages_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: enable_receiving_crsf_messages");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("control_command_timeout", control_command_timeout_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: control_command_timeout");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("rc_timeout", rc_timeout_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: rc_timeout");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("mass", mass_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: mass");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("disable_thrust_mapping", disable_thrust_mapping_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: disable_thrust_mapping");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("max_roll_rate", max_roll_rate_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: max_roll_rate");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("max_pitch_rate", max_pitch_rate_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: max_pitch_rate");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("max_yaw_rate", max_yaw_rate_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: max_yaw_rate");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("max_roll_angle", max_roll_angle_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: max_roll_angle");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("max_pitch_angle", max_pitch_angle_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: max_pitch_angle");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("alpha_vbat_filter", alpha_vbat_filter_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: alpha_vbat_filter");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("perform_thrust_voltage_compensation", perform_thrust_voltage_compensation_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: perform_thrust_voltage_compensation");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("n_lipo_cells", n_lipo_cells_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: n_lipo_cells");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("thrust_vs_rpm_cof_a_", thrust_vs_rpm_cof_a_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: thrust_vs_rpm_cof_a_");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("thrust_vs_rpm_cof_b_", thrust_vs_rpm_cof_b_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: thrust_vs_rpm_cof_b_");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("thrust_vs_rpm_cof_c_", thrust_vs_rpm_cof_c_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: thrust_vs_rpm_cof_c_");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("rpm_vs_throttle_linear_coeff_a_", rpm_vs_throttle_linear_coeff_a_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: rpm_vs_throttle_linear_coeff_a_");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("rpm_vs_throttle_linear_coeff_b_", rpm_vs_throttle_linear_coeff_b_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: rpm_vs_throttle_linear_coeff_b_");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("rpm_vs_throttle_quadratic_coeff_a_", rpm_vs_throttle_quadratic_coeff_a_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: rpm_vs_throttle_quadratic_coeff_a_");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("rpm_vs_throttle_quadratic_coeff_b_", rpm_vs_throttle_quadratic_coeff_b_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: rpm_vs_throttle_quadratic_coeff_b_");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("rpm_vs_throttle_quadratic_coeff_c_", rpm_vs_throttle_quadratic_coeff_c_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: rpm_vs_throttle_quadratic_coeff_c_");
+    all_params_loaded = false;
+  }
+  if (!node_->get_parameter("use_body_rates", use_body_rates_)) {
+    RCLCPP_ERROR(logger_, "Failed to load parameter: use_body_rates");
+    all_params_loaded = false;
+  }
+
+  if (!all_params_loaded) {
+    RCLCPP_ERROR(logger_, "Failed to load one or more parameters.");
+    return false;
+  }
   return true;
 }
 

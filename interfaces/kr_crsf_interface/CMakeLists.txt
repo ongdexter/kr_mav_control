@@ -25,7 +25,6 @@ add_library(${PROJECT_NAME} SHARED
   src/crsf_bridge.cpp
   src/crsf_msg.cpp
   src/crsf_serial_port.cpp
-  src/crsf_thrust_mapping.cpp
 )
 ament_target_dependencies(${PROJECT_NAME} 
   rclcpp

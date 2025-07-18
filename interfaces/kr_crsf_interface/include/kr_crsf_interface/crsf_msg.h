@@ -13,9 +13,9 @@ enum class ArmState { DISARMED, ARMED };
 struct CrsfMsg {
   // Constants (update for CRSF protocol specifics)
   static constexpr int kNChannels = 16; // CRSF typically supports up to 16 channels
-  static constexpr uint16_t kMinCmd = 172;   // CRSF min value (update as needed)
+  static constexpr uint16_t kMinCmd = 174;   // CRSF min value (update as needed)
   static constexpr uint16_t kMeanCmd = 992;  // CRSF mid value (update as needed)
-  static constexpr uint16_t kMaxCmd = 1811;  // CRSF max value (update as needed)
+  static constexpr uint16_t kMaxCmd = 1792;  // CRSF max value (update as needed)
 
   rclcpp::Time timestamp;
 

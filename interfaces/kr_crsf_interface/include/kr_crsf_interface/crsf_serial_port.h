@@ -37,8 +37,7 @@ class CrsfSerialPort {
 
   bool configureSerialPortForCrsf() const;
   void serialPortReceiveThread();
-  crsf_bridge::CrsfMsg parseCrsfMessage(
-      uint8_t crsf_msg_bytes[kCrsfFrameLength_]) const;
+  crsf_bridge::CrsfMsg parseCrsfMessage(const uint8_t* payload) const;
 
   std::thread receiver_thread_;
   std::atomic_bool receiver_thread_should_exit_;

@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>kr_sbus_interface</name>
+  <name>kr_crsf_interface</name>
   <version>0.0.0</version>
-  <description>The kr_sbus_interface package</description>
+  <description>The kr_crsf_interface package</description>
 
   <maintainer email="dexterong94@gmail.com">Dexter Ong</maintainer>
 
