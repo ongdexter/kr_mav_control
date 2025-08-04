@@ -487,7 +487,7 @@ SBusMsg SBusBridge::generateSBusMessageFromSO3Command(const kr_mav_msgs::msg::SO
     pitch_cmd = round((pitch_rate + max_pitch_rate_) / (2 * max_pitch_rate_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
     
     RCLCPP_INFO_THROTTLE(
-        logger_, *node_->get_clock(), 1.0,
+        logger_, *node_->get_clock(), 1000,
         "AUTONOMOUS MODE: roll_rate: %f pitch_rate: %f roll_cmd: %d pitch_cmd: %d",
         roll_rate, pitch_rate, roll_cmd, pitch_cmd);
   }
@@ -510,7 +510,7 @@ SBusMsg SBusBridge::generateSBusMessageFromSO3Command(const kr_mav_msgs::msg::SO
     pitch_cmd = round((pitch_deg + max_pitch_angle_) / (2 * max_pitch_angle_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
     
     RCLCPP_INFO_THROTTLE(
-        logger_, *node_->get_clock(), 1.0,
+        logger_, *node_->get_clock(), 1000,
         "AUTONOMOUS MODE: roll_deg: %f pitch_deg: %f roll_cmd: %d pitch_cmd: %d",
         roll_deg, pitch_deg, roll_cmd, pitch_cmd);
   }
@@ -521,10 +521,10 @@ SBusMsg SBusBridge::generateSBusMessageFromSO3Command(const kr_mav_msgs::msg::SO
   yaw_rate = std::max(-400.0, std::min(400.0, yaw_rate)); // clip max yaw rate
   yaw_cmd = round((yaw_rate + max_yaw_rate_) / (2 * max_yaw_rate_) * (SBusMsg::kMaxCmd - SBusMsg::kMinCmd) + SBusMsg::kMinCmd);
   
-  RCLCPP_INFO_THROTTLE(
-      logger_, *node_->get_clock(), 1.0,
-      "AUTONOMOUS MODE: yaw_rate: %f yaw_cmd: %d",
-      yaw_rate, yaw_cmd);
+//   RCLCPP_INFO_THROTTLE(
+//       logger_, *node_->get_clock(), 1.0,
+//       "AUTONOMOUS MODE: yaw_rate: %f yaw_cmd: %d",
+//       yaw_rate, yaw_cmd);
 
   sbus_msg.setRollCommand(roll_cmd);
   sbus_msg.setPitchCommand(pitch_cmd);

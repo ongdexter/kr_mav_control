@@ -32,7 +32,7 @@ private:
   // Subscribers
   rclcpp::Subscription<kr_mav_msgs::msg::SO3Command>::SharedPtr so3_cmd_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
+//   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
 
   // Motor status
   int motor_status_;
@@ -66,9 +66,9 @@ SO3CmdToSBUS::SO3CmdToSBUS(const rclcpp::NodeOptions &options)
       "odom", 10,
       std::bind(&SO3CmdToSBUS::odom_callback, this, std::placeholders::_1));
 
-  imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
-      "imu", 10,
-      std::bind(&SO3CmdToSBUS::imu_callback, this, std::placeholders::_1));
+//   imu_sub_ = this->create_subscription<sensor_msgs::msg::Imu>(
+//       "imu", 10,
+//       std::bind(&SO3CmdToSBUS::imu_callback, this, std::placeholders::_1));
   
   init_timer_ = this->create_wall_timer(
         std::chrono::milliseconds(0),
