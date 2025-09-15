@@ -33,6 +33,11 @@ CrsfBridge::CrsfBridge(const rclcpp::Node::SharedPtr& node)
     return;
   }
 
+  // Set callback for received CRSF messages
+  serial_port_->setMessageCallback([this](const CrsfMsg& msg) {
+    this->handleReceivedCrsfMessage(msg);
+  });
+
   try {
     watchdog_thread_ = std::thread(&CrsfBridge::watchdogThread, this);
   } catch (...) {

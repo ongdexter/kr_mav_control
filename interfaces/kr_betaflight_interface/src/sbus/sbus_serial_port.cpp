@@ -1,4 +1,5 @@
 #include "kr_betaflight_interface/sbus/sbus_serial_port.h"
+#include <functional>
 
 #include <asm/ioctls.h>
 #include <asm/termbits.h>
@@ -12,6 +13,11 @@
 #include <rclcpp/rclcpp.hpp>
 
 namespace sbus_bridge {
+
+// Add callback setter implementation
+void SBusSerialPort::setMessageCallback(std::function<void(const SBusMsg&)> cb) {
+  message_callback_ = cb;
+}
 
 SBusSerialPort::SBusSerialPort()
     : receiver_thread_(),
@@ -307,7 +313,9 @@ void SBusSerialPort::serialPortReceiveThread() {
           // By running the loop above for as long as possible before handling
           // the received sbus message we achieve to only process the latest one
           const SBusMsg received_sbus_msg = parseSbusMessage(sbus_msg_bytes);
-          handleReceivedSbusMessage(received_sbus_msg);
+          if (message_callback_) {
+            message_callback_(received_sbus_msg);
+          }
         }
       }
     }

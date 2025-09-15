@@ -207,6 +207,17 @@ void CrsfSerialPort::serialPortReceiveThread() {
                 for (ssize_t i = 0; i < nread; ++i) {
                     bytes_buf.push_back(read_buf[i]);
                 }
+
+                // RCLCPP_INFO(logger_, "Read %zd bytes from CRSF serial port", nread);
+
+                // // print buffer contents for debugging
+                // std::string buf_str;
+                // for (const auto& byte : bytes_buf) {
+                //     char byte_str[4];
+                //     snprintf(byte_str, sizeof(byte_str), "%02X ", byte);
+                //     buf_str += byte_str;
+                // }
+                // RCLCPP_INFO(logger_, "Buffer contents: %s", buf_str.c_str());
                 
                 // Try to extract CRSF frames with proper synchronization
                 while (bytes_buf.size() >= 3) {  // Need at least address + length + type
@@ -214,11 +225,13 @@ void CrsfSerialPort::serialPortReceiveThread() {
                     if (bytes_buf[0] == 0xC8 || bytes_buf[0] == 0xEE) {
                         uint8_t frame_length = bytes_buf[1];
                         uint8_t total_frame_size = frame_length + 2;  // +2 for address and length bytes
-                        
+
                         // Validate frame length and ensure we have the complete frame
-                        if (frame_length >= 2 && frame_length <= 64 &&  // Reasonable length bounds
-                            bytes_buf.size() >= total_frame_size) {     // Wait for complete frame
-                            
+                        if (frame_length >= 2 && frame_length <= 64) {
+                            if (bytes_buf.size() < total_frame_size) {
+                                // Not enough data yet, break and wait for next read
+                                break;
+                            }
                             // Check if this is an RC channels frame
                             if (bytes_buf[2] == CRSF_TYPE_RC_CHANNELS_PACKED) {
                                 // Extract the complete frame
@@ -234,10 +247,10 @@ void CrsfSerialPort::serialPortReceiveThread() {
                                     CrsfMsg msg = parseCrsfMessage(&frame[3]);  // Skip address, length, type
                                     if (clock_) msg.timestamp = clock_->now();
                                     else msg.timestamp = rclcpp::Clock().now();
-                                    
-                                    RCLCPP_DEBUG(logger_, "Valid CRSF frame - Address: %02X, Length: %d, Type: %02X", 
-                                               frame[0], frame[1], frame[2]);
-                                    handleReceivedCrsfMessage(msg);
+
+                                    if (message_callback_) {
+                                        message_callback_(msg);
+                                    }
                                 } else {
                                     // CRC mismatch - log and discard
                                     RCLCPP_WARN(logger_, "CRSF frame CRC mismatch - discarding frame");
@@ -256,8 +269,9 @@ void CrsfSerialPort::serialPortReceiveThread() {
                                 continue;
                             }
                         } else {
-                            // Incomplete frame - wait for more data
-                            break;
+                            // Invalid length, pop header and continue searching
+                            bytes_buf.pop_front();
+                            continue;
                         }
                     }
                     // Not a valid frame start, pop one byte and continue searching
@@ -272,6 +286,10 @@ void CrsfSerialPort::serialPortReceiveThread() {
             }
         }
     }
+}
+
+void CrsfSerialPort::setMessageCallback(std::function<void(const CrsfMsg&)> cb) {
+    message_callback_ = cb;
 }
 
 CrsfMsg CrsfSerialPort::parseCrsfMessage(const uint8_t* payload) const {

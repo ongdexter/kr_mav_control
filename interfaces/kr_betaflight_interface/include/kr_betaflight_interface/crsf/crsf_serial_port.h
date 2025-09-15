@@ -25,10 +25,10 @@ public:
   bool stopReceiverThread();
 
   void transmitSerialCrsfMessage(const CrsfMsg& crsf_msg) const;
-  virtual void handleReceivedCrsfMessage(
-      const crsf_bridge::CrsfMsg& received_crsf_msg) {}
+  void setMessageCallback(std::function<void(const CrsfMsg&)> cb);
 
- private:
+private:
+  std::function<void(const CrsfMsg&)> message_callback_;
   static constexpr int kCrsfFrameLength_ = 24; // CRSF frame length (update as needed)
   static constexpr uint8_t kCrsfHeaderByte_ = 0xC8; // CRSF header (update as needed)
   static constexpr int kPollTimeoutMilliSeconds_ = 500;

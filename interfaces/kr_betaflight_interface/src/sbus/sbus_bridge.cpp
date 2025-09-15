@@ -36,6 +36,11 @@ SBusBridge::SBusBridge(const rclcpp::Node::SharedPtr &node)
     return;
   }
 
+  // Set callback for received SBUS messages
+  serial_port_->setMessageCallback([this](const SBusMsg& msg) {
+    this->handleReceivedSbusMessage(msg);
+  });
+
   // Start watchdog thread
   try
   {
