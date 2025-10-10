@@ -61,7 +61,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         robot_arg,
-        config_file_arg,
+        trackers_manager_config_file_arg,
         so3_config_file_arg,
         OpaqueFunction(function=print_config_file),  # Call the function to print config_file
         container,
