@@ -102,9 +102,9 @@ MAVManager::MAVManager()
   // Publishers
   pub_motors_ = this->create_publisher<std_msgs::msg::Bool>("motors", 10);
   pub_estop_ = this->create_publisher<std_msgs::msg::Empty>("estop", 10);
-  pub_so3_command_ = this->create_publisher<kr_mav_msgs::msg::SO3Command>("/cf3/so3_controller/so3_cmd", 10);
+  pub_so3_command_ = this->create_publisher<kr_mav_msgs::msg::SO3Command>("so3_controller/so3_cmd", 10);
   pub_trpy_command_ = this->create_publisher<kr_mav_msgs::msg::TRPYCommand>("trpy_cmd", 10);
-  pub_position_command_ = this->create_publisher<kr_mav_msgs::msg::PositionCommand>("/cf3/trackers_manager/cmd", 10);
+  pub_position_command_ = this->create_publisher<kr_mav_msgs::msg::PositionCommand>("trackers_manager/cmd", 10);
   pub_status_ = this->create_publisher<std_msgs::msg::UInt8>("~/status", 10);
   pub_goal_velocity_ =
       this->create_publisher<kr_tracker_msgs::msg::VelocityGoal>("trackers_manager/velocity_tracker/goal", 10);
@@ -115,7 +115,7 @@ MAVManager::MAVManager()
 
   // Subscribers
   odom_sub_ =
-      this->create_subscription<nav_msgs::msg::Odometry>("odom", qos, std::bind(&MAVManager::odometry_cb, this, _1));
+      this->create_subscription<nav_msgs::msg::Odometry>("control_odom", qos, std::bind(&MAVManager::odometry_cb, this, _1));
   heartbeat_sub_ =
       this->create_subscription<std_msgs::msg::Empty>("heartbeat", qos, std::bind(&MAVManager::heartbeat_cb, this, _1));
   tracker_status_sub_ = this->create_subscription<kr_tracker_msgs::msg::TrackerStatus>(

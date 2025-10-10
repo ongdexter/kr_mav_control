@@ -14,14 +14,14 @@ def generate_launch_description():
 
     # KR interface paths & configurations
     config_file = os.path.join(
-        get_package_share_directory('kr_crsf_interface'),
+        get_package_share_directory('kr_betaflight_interface'),
         'config',
         'neurofly.yaml'
     )
 
     trackers_manager_config_file = FindPackageShare('kr_trackers_manager').find('kr_trackers_manager') + '/config/trackers_manager.yaml'
     so3_config_file = os.path.join(
-        get_package_share_directory('kr_crsf_interface'),
+        get_package_share_directory('kr_betaflight_interface'),
         'config',
         'gains.yaml'
     )
@@ -76,9 +76,9 @@ def generate_launch_description():
         executable="component_container_mt",
         composable_node_descriptions=[
             ComposableNode(
-                package="kr_crsf_interface",
-                plugin="SO3CmdToCRSF",
-                name="so3cmd_to_crsf",
+                package="kr_betaflight_interface",
+                plugin="SO3CmdToBetaflight",
+                name="so3cmd_to_betaflight",
                 namespace=LaunchConfiguration('robot'),
                 parameters=[config_file],
                 remappings=[
@@ -115,7 +115,7 @@ def generate_launch_description():
                 package="zed_components",
                 plugin="stereolabs::ZedCamera",
                 name="zed_node",
-                namespace="zed",
+                namespace=LaunchConfiguration('robot'),
                 parameters=[
                     [FindPackageShare('zed_wrapper').find('zed_wrapper'), '/config/', LaunchConfiguration('camera_model'), '.yaml'],
                     [FindPackageShare('zed_wrapper').find('zed_wrapper'), '/config/common_stereo.yaml'],
@@ -142,8 +142,8 @@ def generate_launch_description():
                     'base_link': 'zed_camera_link'
                 }],
                 remappings=[
-                    ('odom', '/zed/zed_node/odom'),
-                    ('imu', '/zed/zed_node/imu/data'),
+                    ('odom', 'zed_node/odom'),
+                    ('imu', 'zed_node/imu/data'),
                 ],
             ),
         ],

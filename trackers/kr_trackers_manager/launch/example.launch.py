@@ -20,9 +20,12 @@ def generate_launch_description():
     robot_arg = DeclareLaunchArgument(
       'namespace', default_value=''
     )
-    config_file_arg = DeclareLaunchArgument('config_file')
+    trackers_manager_config_file_arg = DeclareLaunchArgument('config_file')
     # Path to the configuration file
-    config_file = LaunchConfiguration('config_file')
+    trackers_manager_config_file = LaunchConfiguration('trackers_manager_config_file_arg')
+    
+    so3_config_file_arg = DeclareLaunchArgument('so3_config_file')
+    so3_config_file = LaunchConfiguration('so3_config_file')
 
     container = ComposableNodeContainer(
         name="trackers_manager_container",
@@ -49,6 +52,7 @@ def generate_launch_description():
                 package="kr_mav_controllers",
                 plugin="SO3ControlComponent",
                 name="so3_controller",
+                parameters=[so3_config_file],
             ),
         ],
         output='screen'
@@ -58,6 +62,7 @@ def generate_launch_description():
     return LaunchDescription([
         robot_arg,
         config_file_arg,
+        so3_config_file_arg,
         OpaqueFunction(function=print_config_file),  # Call the function to print config_file
         container,
     ])

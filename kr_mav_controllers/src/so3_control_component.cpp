@@ -644,13 +644,13 @@ SO3ControlComponent::SO3ControlComponent(const rclcpp::NodeOptions &options)
   auto qos2 = rclcpp::QoS(rclcpp::QoSInitialization(qos_profile.history, 2), qos_profile);
 
   odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-      "/cf3/odom", qos1, std::bind(&SO3ControlComponent::odom_callback, this, std::placeholders::_1));
+      "control_odom", qos1, std::bind(&SO3ControlComponent::odom_callback, this, std::placeholders::_1));
   position_cmd_sub_ = this->create_subscription<kr_mav_msgs::msg::PositionCommand>(
-      "/cf3/trackers_manager/cmd", qos1, std::bind(&SO3ControlComponent::position_cmd_callback, this, std::placeholders::_1));
+      "trackers_manager/cmd", qos1, std::bind(&SO3ControlComponent::position_cmd_callback, this, std::placeholders::_1));
   enable_motors_sub_ = this->create_subscription<std_msgs::msg::Bool>(
-      "/cf3/motors", qos2, std::bind(&SO3ControlComponent::enable_motors_callback, this, std::placeholders::_1));
+      "motors", qos2, std::bind(&SO3ControlComponent::enable_motors_callback, this, std::placeholders::_1));
   corrections_sub_ = this->create_subscription<kr_mav_msgs::msg::Corrections>(
-      "/cf3/corrections", qos1, std::bind(&SO3ControlComponent::corrections_callback, this, std::placeholders::_1));
+      "corrections", qos1, std::bind(&SO3ControlComponent::corrections_callback, this, std::placeholders::_1));
 }
 
 #include "rclcpp_components/register_node_macro.hpp"

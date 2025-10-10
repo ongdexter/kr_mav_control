@@ -1,4 +1,4 @@
-cf3/trackers_manager:
+trackers_manager:
   ros__parameters:
     trackers: ["NullTracker", "LineTrackerDistance", "LineTrackerMinJerk"]
     line_tracker_distance/default_v_des: 0.5
