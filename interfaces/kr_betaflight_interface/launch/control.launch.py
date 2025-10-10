@@ -19,7 +19,7 @@ def generate_launch_description():
         'neurofly.yaml'
     )
 
-    trackers_manager_config_file = FindPackageShare('kr_trackers_manager').find('kr_trackers_manager') + '/config/trackers_manager.yaml'
+    trackers_manager_config_file = FindPackageShare('kr_betaflight_interface').find('kr_betaflight_interface') + '/config/trackers.yaml'
     so3_config_file = os.path.join(
         get_package_share_directory('kr_betaflight_interface'),
         'config',
@@ -44,10 +44,10 @@ def generate_launch_description():
 
     # KR interface arguments
     kr_args = [
-        DeclareLaunchArgument('robot', default_value='neurofly1'),
-        DeclareLaunchArgument('odom', default_value='odom'),
+        DeclareLaunchArgument('robot', default_value='neurofly1'), # set robot namespace        
+        DeclareLaunchArgument('mass', default_value='.680'), # set mass AUW
+        DeclareLaunchArgument('odom', default_value='control_odom'), # set odom topic (vio/ukf/vicon)
         DeclareLaunchArgument('so3_cmd', default_value='so3_cmd'),
-        DeclareLaunchArgument('mass', default_value='.680'),
     ]
 
     # ZED camera arguments
@@ -108,7 +108,9 @@ def generate_launch_description():
                 plugin="SO3ControlComponent",
                 name="so3_controller",
                 namespace=LaunchConfiguration('robot'),
-                parameters=[so3_config_file],
+                parameters=[
+                    [so3_config_file],
+                ],
             ),
             ComposableNode(
                 condition=IfCondition(LaunchConfiguration('zed_enable')),
@@ -188,7 +190,7 @@ def generate_launch_description():
                 {'publish_pts': False},
                 {'fixed_frame_id': 'mocap'},
                 # Set to [''] to take in ALL models from Vicon
-                {'model_list': ['neurofly1']},
+                {'model_list': [LaunchConfiguration('robot')]},
             ],
             remappings=[
                 # Uncomment and modify the remapping if needed

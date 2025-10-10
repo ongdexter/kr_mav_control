@@ -635,8 +635,8 @@ SO3ControlComponent::SO3ControlComponent(const rclcpp::NodeOptions &options)
   reconfigure_handle_ =
       this->add_on_set_parameters_callback(std::bind(&SO3ControlComponent::cfg_callback, this, std::placeholders::_1));
 
-  so3_command_pub_ = this->create_publisher<kr_mav_msgs::msg::SO3Command>("~/so3_cmd", 10);
-  command_viz_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("~/cmd_viz", 10);
+  so3_command_pub_ = this->create_publisher<kr_mav_msgs::msg::SO3Command>("so3_cmd", 10);
+  command_viz_pub_ = this->create_publisher<geometry_msgs::msg::PoseStamped>("cmd_viz", 10);
 
   // Setting QoS profile to get equivalent performance to ros::TransportHints().tcpNoDelay()
   rmw_qos_profile_t qos_profile = rmw_qos_profile_sensor_data;

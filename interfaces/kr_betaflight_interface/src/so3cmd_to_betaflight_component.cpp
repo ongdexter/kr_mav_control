@@ -22,13 +22,12 @@ public:
 private:
   void so3_cmd_callback(const kr_mav_msgs::msg::SO3Command::SharedPtr msg);
   void odom_callback(const nav_msgs::msg::Odometry::SharedPtr odom);
-  void imu_callback(const sensor_msgs::msg::Imu::SharedPtr pose);
   void check_so3_cmd_timeout();
   void motors_on();
   void motors_off();
   
   // Controller state
-  bool odom_set_, imu_set_, so3_cmd_set_;
+  bool odom_set_, so3_cmd_set_;
   Eigen::Quaterniond odom_q_;
 
   // Subscribers
@@ -52,7 +51,6 @@ private:
 SO3CmdToBetaflight::SO3CmdToBetaflight(const rclcpp::NodeOptions &options)
   : Node("so3cmd_to_bridge", rclcpp::NodeOptions(options).use_intra_process_comms(true)),
     odom_set_(false),
-    imu_set_(false),
     so3_cmd_set_(false),
     motor_status_(0)
 {
@@ -91,19 +89,28 @@ void SO3CmdToBetaflight::so3_cmd_callback(const kr_mav_msgs::msg::SO3Command::Sh
 {
   if (!so3_cmd_set_)
       so3_cmd_set_ = true;
+  
+  if (!bridge_)
+  {
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 2000, "Bridge not initialized yet.");
+    return;
+  }
 
-  // Switch on motors
-  if (msg->aux.enable_motors && bridge_ && !bridge_->isBridgeArmed() && !motor_status_)
+  // switch on motors
+  if (msg->aux.enable_motors && !bridge_->isBridgeArmed() && !motor_status_ && odom_set_)
   {
       motors_on();
   }
-  else if (!msg->aux.enable_motors && bridge_)
+  else if (!msg->aux.enable_motors)
   {
       motors_off();
   }
 
-  if (bridge_)
+  // only send if valid odom
+  if (odom_set_)
+  {
     bridge_->controlCommandCallback(msg, odom_q_);
+  }
 
   // Save last so3_cmd
   last_so3_cmd_ = *msg;
@@ -117,14 +124,23 @@ void SO3CmdToBetaflight::odom_callback(const nav_msgs::msg::Odometry::SharedPtr 
       odom->pose.pose.orientation.x,
       odom->pose.pose.orientation.y,
       odom->pose.pose.orientation.z);
-  odom_set_ = true;
+  // check if odom is valid
+  if (std::isnan(odom_q_.w()) || std::isnan(odom_q_.x()) || std::isnan(odom_q_.y()) || std::isnan(odom_q_.z()))
+  {
+    RCLCPP_WARN(this->get_logger(), "Received nan in odom orientation");
+    odom_set_ = false;
+  }
+  else
+  {
+    odom_set_ = true;
+  }
 }
 
 void SO3CmdToBetaflight::check_so3_cmd_timeout()
 {
   if (so3_cmd_set_ && ((this->now() - last_so3_cmd_time_).seconds() >= so3_cmd_timeout_))
   {
-    RCLCPP_DEBUG(this->get_logger(), "so3_cmd timeout. %f seconds since last command", 
+    RCLCPP_WARN(this->get_logger(), "so3_cmd timeout. %f seconds since last command", 
                   (this->now() - last_so3_cmd_time_).seconds());
     
     auto last_so3_cmd_ptr = std::make_shared<kr_mav_msgs::msg::SO3Command>(last_so3_cmd_);
@@ -134,6 +150,7 @@ void SO3CmdToBetaflight::check_so3_cmd_timeout()
 
 void SO3CmdToBetaflight::motors_on()
 {
+
   if (bridge_) bridge_->armBridge();
   motor_status_ = 1;
 }
