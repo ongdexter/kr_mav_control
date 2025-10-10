@@ -38,7 +38,7 @@ def generate_launch_description():
                 package="kr_trackers_manager",
                 plugin="TrackersManager",
                 name="trackers_manager",
-                parameters=[config_file],
+                parameters=[trackers_manager_config_file],
             ),
             ComposableNode(
                 package="kr_trackers_manager",
