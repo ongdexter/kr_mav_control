@@ -25,6 +25,7 @@ find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
 "msg/TrackerStatus.msg"
 "msg/VelocityGoal.msg"
+"msg/Polynomial.msg"
 
 "srv/Transition.srv"
 
@@ -34,6 +35,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 "action/LissajousTracker.action"
 "action/TrajectoryTracker.action"
 "action/VelocityTracker.action"
+"action/PolyTracker.action"
 
 DEPENDENCIES std_msgs builtin_interfaces geometry_msgs
 )
