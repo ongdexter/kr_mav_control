@@ -90,19 +90,8 @@ void CrsfBridge::watchdogThread() {
       CrsfMsg kill_msg;
       kill_msg.setArmStateDisarmed();
       sendCrsfMessageToSerialPort(kill_msg);
-      if (bridge_armed_) {
+      if (isBridgeArmed()) {
         disarmBridge();
-      }
-    }
-    std::lock_guard<std::mutex> battery_lock(battery_voltage_mutex_);
-    if ((time_now - time_last_battery_voltage_received_).seconds() >
-        kBatteryVoltageTimeout_) {
-      battery_voltage_ = 0.0;
-      if (perform_thrust_voltage_compensation_) {
-        RCLCPP_WARN_THROTTLE(
-            logger_, *node_->get_clock(), 1000,
-            "Can not perform battery voltage compensation because there "
-            "is no recent battery voltage measurement");
       }
     }
   }
@@ -166,7 +155,7 @@ void CrsfBridge::handleReceivedCrsfMessage(const CrsfMsg &received_crsf_msg)
       // In case there are valid control commands, the bridge will stay in
       // AUTONOMOUS_FLIGHT, otherwise the watchdog will set the state to OFF      
       RCLCPP_INFO(logger_, "Control authority returned by remote control.");
-      if (bridge_armed_)
+      if (isBridgeArmed())
       {
         RCLCPP_INFO(logger_, "Bridge armed, setting bridge state to AUTONOMOUS_FLIGHT");
         setBridgeState(BridgeState::AUTONOMOUS_FLIGHT);
@@ -207,9 +196,9 @@ void CrsfBridge::controlCommandCallback(
     return;
   }
   time_last_active_control_command_received_ = node_->now();
-  if (!bridge_armed_ || bridge_state_ != BridgeState::AUTONOMOUS_FLIGHT)
+  if (!isBridgeArmed() || bridge_state_ != BridgeState::AUTONOMOUS_FLIGHT)
   {    
-    if (!bridge_armed_ && msg->aux.enable_motors &&
+    if (!isBridgeArmed() && msg->aux.enable_motors &&
         bridge_state_ != BridgeState::RC_FLIGHT)
     {
       RCLCPP_WARN(
@@ -221,7 +210,6 @@ void CrsfBridge::controlCommandCallback(
   }
   CrsfMsg crsf_msg_to_send;
   {
-    std::lock_guard<std::mutex> battery_lock(battery_voltage_mutex_);
     crsf_msg_to_send = generateCrsfMessageFromSO3Command(msg, odom_q);
   }
   if (!msg->aux.enable_motors) 
@@ -487,6 +475,7 @@ void CrsfBridge::disarmBridge()
 
 bool CrsfBridge::isBridgeArmed() const
 {
+  std::lock_guard<std::mutex> arm_lock(arm_mutex_);
   return bridge_armed_;
 }
 

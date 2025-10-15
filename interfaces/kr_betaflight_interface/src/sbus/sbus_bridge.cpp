@@ -134,7 +134,7 @@ void SBusBridge::watchdogThread()
       kill_msg.setArmStateDisarmed();
       sendSBusMessageToSerialPort(kill_msg);
       // disarm bridge if needed
-      if(bridge_armed_)
+      if(isBridgeArmed())
       {
         disarmBridge();
       }
@@ -216,7 +216,7 @@ void SBusBridge::handleReceivedSbusMessage(const SBusMsg &received_sbus_msg)
       // In case there are valid control commands, the bridge will stay in
       // AUTONOMOUS_FLIGHT, otherwise the watchdog will set the state to OFF
       RCLCPP_INFO(logger_, "Control authority returned by remote control.");
-      if(bridge_armed_)
+      if(isBridgeArmed())
       {
         RCLCPP_INFO(logger_, "Bridge armed, setting bridge state to AUTONOMOUS_FLIGHT");
         setBridgeState(BridgeState::AUTONOMOUS_FLIGHT);
@@ -261,11 +261,11 @@ void SBusBridge::controlCommandCallback(const kr_mav_msgs::msg::SO3Command::Cons
   // may need more logic @TODO
   time_last_active_control_command_received_ = node_->now();
 
-  if(!bridge_armed_ || bridge_state_ != BridgeState::AUTONOMOUS_FLIGHT)
+  if(!isBridgeArmed() || bridge_state_ != BridgeState::AUTONOMOUS_FLIGHT)
   {
     // If bridge is not armed we do not allow control commands to be sent
     // RC has priority over control commands for autonomous flying
-    if(!bridge_armed_ && msg->aux.enable_motors && bridge_state_ != BridgeState::RC_FLIGHT)
+    if(!isBridgeArmed() && msg->aux.enable_motors && bridge_state_ != BridgeState::RC_FLIGHT)
     {
       RCLCPP_WARN(logger_, "Received active control command but sbus bridge is not armed. "
                            "Please arm the bridge before sending control commands.");
@@ -582,6 +582,7 @@ void SBusBridge::disarmBridge()
 
 bool SBusBridge::isBridgeArmed() const
 {
+  std::lock_guard<std::mutex> arm_lock(arm_mutex_);
   return bridge_armed_;
 }
 

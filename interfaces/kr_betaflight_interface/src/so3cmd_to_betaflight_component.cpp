@@ -35,9 +35,6 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
 
-  // Motor status
-  int motor_status_;
-
   // Timeout handling
   double so3_cmd_timeout_;
   rclcpp::Time last_so3_cmd_time_;
@@ -51,8 +48,7 @@ private:
 SO3CmdToBetaflight::SO3CmdToBetaflight(const rclcpp::NodeOptions &options)
   : Node("so3cmd_to_bridge", rclcpp::NodeOptions(options).use_intra_process_comms(true)),
     odom_set_(false),
-    so3_cmd_set_(false),
-    motor_status_(0)
+    so3_cmd_set_(false)
 {
   this->declare_parameter("so3_cmd_timeout", 0.25);
   this->declare_parameter("protocol_type", "crsf");
@@ -65,7 +61,7 @@ SO3CmdToBetaflight::SO3CmdToBetaflight(const rclcpp::NodeOptions &options)
       std::bind(&SO3CmdToBetaflight::so3_cmd_callback, this, std::placeholders::_1));
 
   odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>(
-      "odom", 10,
+      "control_odom", 10,
       std::bind(&SO3CmdToBetaflight::odom_callback, this, std::placeholders::_1));
   
   init_timer_ = this->create_wall_timer(
@@ -97,7 +93,7 @@ void SO3CmdToBetaflight::so3_cmd_callback(const kr_mav_msgs::msg::SO3Command::Sh
   }
 
   // switch on motors
-  if (msg->aux.enable_motors && !bridge_->isBridgeArmed() && !motor_status_ && odom_set_)
+  if (msg->aux.enable_motors && !bridge_->isBridgeArmed() && odom_set_)
   {
       motors_on();
   }
@@ -152,13 +148,11 @@ void SO3CmdToBetaflight::motors_on()
 {
 
   if (bridge_) bridge_->armBridge();
-  motor_status_ = 1;
 }
 
 void SO3CmdToBetaflight::motors_off()
 {
   if (bridge_) bridge_->disarmBridge();
-  motor_status_ = 0;
 }
 
 #include <rclcpp_components/register_node_macro.hpp>
