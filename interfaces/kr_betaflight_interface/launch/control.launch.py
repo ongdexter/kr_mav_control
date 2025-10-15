@@ -23,7 +23,7 @@ def generate_launch_description():
     so3_config_file = os.path.join(
         get_package_share_directory('kr_betaflight_interface'),
         'config',
-        'gains.yaml'
+        'neurofly_gains.yaml'
     )
 
     # URDF/xacro file to be loaded by the Robot State Publisher node
