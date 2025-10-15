@@ -52,10 +52,16 @@ MAVManager::MAVManager()
   this->declare_parameter("mass", rclcpp::PARAMETER_DOUBLE);
   this->declare_parameter("odom_timeout", 0.1f);
   this->declare_parameter("takeoff_height", 0.5);
-  this->declare_parameter("robot", "cf3");
+  this->declare_parameter("robot", "neurofly1");
 
   std::string robot_name = this->get_parameter("robot").as_string();
   RCLCPP_INFO(this->get_logger(), robot_name.c_str());
+  
+  rclcpp::Time now = this->now();
+  last_odom_t_ = now;
+  last_imu_t_ = now;
+  last_output_data_t_ = now;
+  last_heartbeat_t_ = now;
 
   // Action Client
   line_tracker_distance_client_ =
@@ -115,7 +121,7 @@ MAVManager::MAVManager()
 
   // Subscribers
   odom_sub_ =
-      this->create_subscription<nav_msgs::msg::Odometry>("control_odom", qos, std::bind(&MAVManager::odometry_cb, this, _1));
+      this->create_subscription<nav_msgs::msg::Odometry>("odom", qos, std::bind(&MAVManager::odometry_cb, this, _1));
   heartbeat_sub_ =
       this->create_subscription<std_msgs::msg::Empty>("heartbeat", qos, std::bind(&MAVManager::heartbeat_cb, this, _1));
   tracker_status_sub_ = this->create_subscription<kr_tracker_msgs::msg::TrackerStatus>(

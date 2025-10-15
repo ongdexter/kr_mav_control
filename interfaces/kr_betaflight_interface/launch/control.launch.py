@@ -36,23 +36,15 @@ def generate_launch_description():
     # Define launch arguments
     vicon_args = [
         # Adding mocap vicon specific parameters
-        DeclareLaunchArgument('mocap', default_value='false'),
-        DeclareLaunchArgument('mocap_server', default_value='mocap.perch'),
+        DeclareLaunchArgument('mocap', default_value='true'),
+        DeclareLaunchArgument('mocap_server', default_value='192.168.8.2'),
         DeclareLaunchArgument('mocap_frame_rate', default_value='100'),
         DeclareLaunchArgument('mocap_max_accel', default_value='10.0'),
-    ]
-
-    # KR interface arguments
-    kr_args = [
-        DeclareLaunchArgument('robot', default_value='neurofly1'), # set robot namespace        
-        DeclareLaunchArgument('mass', default_value='.680'), # set mass AUW
-        DeclareLaunchArgument('odom', default_value='control_odom'), # set odom topic (vio/ukf/vicon)
-        DeclareLaunchArgument('so3_cmd', default_value='so3_cmd'),
-    ]
+    ]    
 
     # ZED camera arguments
     zed_args = [
-        DeclareLaunchArgument('zed_enable', default_value='true'),
+        DeclareLaunchArgument('zed_enable', default_value='false'),
         DeclareLaunchArgument('camera_name', default_value='zed'),
         DeclareLaunchArgument('camera_model', default_value='zedm'),
         DeclareLaunchArgument('publish_urdf', default_value='true'),
@@ -63,6 +55,19 @@ def generate_launch_description():
         DeclareLaunchArgument('custom_baseline', default_value='0.0'),
         DeclareLaunchArgument('enable_gnss', default_value='false'),
         DeclareLaunchArgument('publish_svo_clock', default_value='false'),
+    ]
+
+    # KR interface arguments
+    kr_args = [
+        DeclareLaunchArgument('robot', default_value='neurofly1'), # set robot namespace        
+        DeclareLaunchArgument('mass', default_value='.680'), # set mass AUW
+        DeclareLaunchArgument(
+            'odom',
+            default_value=PythonExpression([
+            '"control_odom"' if LaunchConfiguration('zed_enable') == 'true' else '"odom"'
+            ])
+        ), # set odom topic (vio/ukf/vicon)
+        DeclareLaunchArgument('so3_cmd', default_value='so3_cmd'),
     ]
 
     # Initialize launch description with all arguments
@@ -133,6 +138,7 @@ def generate_launch_description():
                 extra_arguments=[{'use_intra_process_comms': True}]
             ),            
             ComposableNode(
+                condition=IfCondition(LaunchConfiguration('zed_enable')),
                 package="quadrotor_ukf_ros2",
                 plugin="QuadrotorUKFNode",
                 name="quadrotor_ukf_ros2",
@@ -181,6 +187,7 @@ def generate_launch_description():
             package='mocap_vicon',
             executable='mocap_vicon_node',
             name='vicon',
+            namespace='vicon',
             output='screen',
             parameters=[
                 {'server_address': LaunchConfiguration('mocap_server')},
@@ -190,11 +197,11 @@ def generate_launch_description():
                 {'publish_pts': False},
                 {'fixed_frame_id': 'mocap'},
                 # Set to [''] to take in ALL models from Vicon
-                {'model_list': [LaunchConfiguration('robot')]},
+                {'model_list': ['']},
             ],
             remappings=[
                 # Uncomment and modify the remapping if needed
-                ('/neurofly1/odom', '/odom'),
+                ('/vicon/neurofly1/odom', '/neurofly1/odom'),
             ]
         )
     )
