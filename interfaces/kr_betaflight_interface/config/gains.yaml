@@ -2,12 +2,12 @@
 quadrotor_name: neurofly1
 mass: 0.68
 
-kp_x: 3.4
-kp_y: 3.4
-kp_z: 5.4
-kd_x: 2.8
-kd_y: 2.8
-kd_z: 3.0
+kp_x: 6.0
+kp_y: 6.0
+kp_z: 8.0
+kd_x: 3.0
+kd_y: 3.0
+kd_z: 3.5
 ki_x: 0.00
 ki_y: 0.00
 ki_z: 0.00
@@ -16,8 +16,8 @@ kib_x: 0.00
 kib_y: 0.00
 kib_z: 0.00
 
-rot_x: 1.5
-rot_y: 1.5
+rot_x: 1.2
+rot_y: 1.2
 rot_z: 1.0
 
 ang_x: 0.13
@@ -28,5 +28,5 @@ kf_correction: 0.0e-08
 roll_correction: 0.0
 pitch_correction: 0.0
 
-max_pos_int:   0.5
-max_pos_int_b: 0.5
+max_pos_int:   0.3
+max_pos_int_b: 0.3
