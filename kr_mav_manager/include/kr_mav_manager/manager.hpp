@@ -23,6 +23,7 @@
 #include "kr_tracker_msgs/action/line_tracker.hpp"
 #include "kr_tracker_msgs/action/lissajous_adder.hpp"
 #include "kr_tracker_msgs/action/lissajous_tracker.hpp"
+#include "kr_tracker_msgs/action/poly_tracker.hpp"
 #include "kr_tracker_msgs/msg/tracker_status.hpp"
 #include "kr_tracker_msgs/msg/velocity_goal.hpp"
 #include "kr_tracker_msgs/srv/transition.hpp"
@@ -38,6 +39,9 @@ using LissajousTracker = kr_tracker_msgs::action::LissajousTracker;
 using LissajousTrackerGoalHandle = rclcpp_action::ClientGoalHandle<LissajousTracker>;
 using LissajousAdder = kr_tracker_msgs::action::LissajousAdder;
 using LissajousAdderGoalHandle = rclcpp_action::ClientGoalHandle<LissajousAdder>;
+
+using PolyTracker = kr_tracker_msgs::action::PolyTracker;
+using PolyTrackerGoalHandle = rclcpp_action::ClientGoalHandle<PolyTracker>;
 
 class MAVManager : public rclcpp::Node
 {
@@ -112,6 +116,9 @@ class MAVManager : public rclcpp::Node
                           float y_num_periods[2], float z_num_periods[2], float yaw_num_periods[2], float period[2],
                           float num_cycles[2], float ramp_time[2]);
 
+  // PolyTracker
+  bool sendPolyGoal(const PolyTracker::Goal &goal);
+
   // Direct low-level control
   bool setPositionCommand(const kr_mav_msgs::msg::PositionCommand &msg);
   bool setSO3Command(const kr_mav_msgs::msg::SO3Command &msg);
@@ -147,11 +154,13 @@ class MAVManager : public rclcpp::Node
   typedef rclcpp_action::Client<kr_tracker_msgs::action::CircleTracker>::SharedPtr CircleClientType;
   typedef rclcpp_action::Client<kr_tracker_msgs::action::LissajousTracker>::SharedPtr LissajousClientType;
   typedef rclcpp_action::Client<kr_tracker_msgs::action::LissajousAdder>::SharedPtr CompoundLissajousClientType;
+  typedef rclcpp_action::Client<kr_tracker_msgs::action::PolyTracker>::SharedPtr PolyClientType;
 
   void tracker_done_callback(const LineTrackerGoalHandle::WrappedResult &result);
   void circle_tracker_done_callback(const CircleTrackerGoalHandle::WrappedResult &result);
   void lissajous_tracker_done_callback(const LissajousTrackerGoalHandle::WrappedResult &result);
   void lissajous_adder_done_callback(const LissajousAdderGoalHandle::WrappedResult &result);
+  void poly_tracker_done_callback(const PolyTrackerGoalHandle::WrappedResult &result);
 
   void odometry_cb(nav_msgs::msg::Odometry::ConstSharedPtr msg);
   void imu_cb(sensor_msgs::msg::Imu::ConstSharedPtr msg);
@@ -189,6 +198,7 @@ class MAVManager : public rclcpp::Node
   CircleClientType circle_tracker_client_;
   LissajousClientType lissajous_tracker_client_;
   CompoundLissajousClientType lissajous_adder_client_;
+  PolyClientType poly_tracker_client_;
 
   // Publishers
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr pub_motors_;

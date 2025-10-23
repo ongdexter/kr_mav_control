@@ -22,6 +22,7 @@ static const std::string null_tracker_str("NullTracker");
 static const std::string circle_tracker_str("CircleTracker");
 static const std::string lissajous_tracker_str("LissajousTracker");
 static const std::string lissajous_adder_str("LissajousAdder");
+static const std::string poly_tracker_str("PolyTracker");
 
 using namespace std::placeholders;
 
@@ -74,6 +75,7 @@ MAVManager::MAVManager()
       rclcpp_action::create_client<LissajousTracker>(this, "trackers_manager/lissajous_tracker/LissajousTracker");
   lissajous_adder_client_ =
       rclcpp_action::create_client<LissajousAdder>(this, "trackers_manager/lissajous_adder/LissajousAdder");
+  poly_tracker_client_ = rclcpp_action::create_client<PolyTracker>(this, "trackers_manager/poly_tracker/PolyTracker");
 
   float server_wait_timout;
   server_wait_timout = this->get_parameter("server_wait_timeout").as_double();
@@ -103,6 +105,11 @@ MAVManager::MAVManager()
   if(!lissajous_adder_client_->wait_for_action_server(server_wait_timeout_duration))
   {
     RCLCPP_WARN(this->get_logger(), "LissajousAdder server not found.");
+  }
+
+  if(!poly_tracker_client_->wait_for_action_server(server_wait_timeout_duration))
+  {
+    RCLCPP_WARN(this->get_logger(), "PolyTracker server not found.");
   }
 
   // Publishers
@@ -217,6 +224,42 @@ void MAVManager::lissajous_adder_done_callback(const LissajousAdderGoalHandle::W
               "%2.2f, %2.2f).",
               result.result->duration, result.result->length, result.result->x, result.result->y, result.result->z,
               result.result->yaw);
+}
+
+void MAVManager::poly_tracker_done_callback(const PolyTrackerGoalHandle::WrappedResult &result)
+{
+  // Log basic info about completion. PolyTracker result contents vary; log duration if present.
+  try
+  {
+    if(result.result)
+    {
+      RCLCPP_INFO(this->get_logger(), "PolyTracker completed. (may include duration/summary)");
+    }
+    else
+    {
+      RCLCPP_INFO(this->get_logger(), "PolyTracker completed with no result payload.");
+    }
+  }
+  catch(...) {
+    RCLCPP_INFO(this->get_logger(), "PolyTracker done callback invoked.");
+  }
+}
+
+bool MAVManager::sendPolyGoal(const PolyTracker::Goal &goal_msg)
+{
+//   if(!this->motors() || status_ != FLYING)
+//   {
+//     RCLCPP_WARN(this->get_logger(), "The robot must be flying before sending a PolyTracker goal.");
+//     return false;
+//   }
+
+  auto goal = goal_msg;
+  auto options = rclcpp_action::Client<PolyTracker>::SendGoalOptions();
+  options.result_callback = std::bind(&MAVManager::poly_tracker_done_callback, this, _1);
+
+  poly_tracker_client_->async_send_goal(goal, options);
+
+  return this->transition(poly_tracker_str);
 }
 
 void MAVManager::odometry_cb(nav_msgs::msg::Odometry::ConstSharedPtr msg)

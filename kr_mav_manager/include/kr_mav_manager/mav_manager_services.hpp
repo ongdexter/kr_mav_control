@@ -8,6 +8,7 @@
 #include "kr_mav_manager/srv/vec4.hpp"
 #include "std_srvs/srv/set_bool.hpp"
 #include "std_srvs/srv/trigger.hpp"
+#include "kr_tracker_msgs/action/poly_tracker.hpp"
 
 namespace kr_mav_manager
 {
@@ -186,6 +187,33 @@ class MAVManagerServices
       last_cb_ = "estop";
   }
 
+  void poly_trigger_cb(const std_srvs::srv::Trigger::Request::SharedPtr req,
+                       const std_srvs::srv::Trigger::Response::SharedPtr res)
+  {
+    (void)req;
+    if(!have_poly_goal_)
+    {
+      RCLCPP_WARN(mav->get_logger(), "No PolyTracker goal received yet; cannot trigger poly_tracker.");
+      res->success = false;
+      res->message = "No poly goal available";
+      return;
+    }
+
+    // Send the stored PolyTracker goal via the MAVManager helper
+    kr_tracker_msgs::action::PolyTracker::Goal goal = latest_poly_goal_;
+    res->success = mav->sendPolyGoal(goal);
+    res->message = res->success ? "Poly triggered" : "Poly trigger failed";
+    if(res->success)
+      last_cb_ = "poly_tracker";
+  }
+
+  void poly_goal_cb(const kr_tracker_msgs::action::PolyTracker::Goal::SharedPtr goal)
+  {
+    latest_poly_goal_ = *goal;
+    have_poly_goal_ = true;
+    RCLCPP_DEBUG(mav->get_logger(), "Received PolyTracker goal (stored)");
+  }
+
   // Constructor
   MAVManagerServices(std::shared_ptr<MAVManager> m) : mav(m), last_cb_("")
   {
@@ -222,6 +250,15 @@ class MAVManagerServices
         mav->create_service<std_srvs::srv::Trigger>("~/eland", std::bind(&MAVManagerServices::eland_cb, this, _1, _2));
     estop_srv_ =
         mav->create_service<std_srvs::srv::Trigger>("~/estop", std::bind(&MAVManagerServices::estop_cb, this, _1, _2));
+
+    // Subscribe to planner published PolyTracker goals (published on topic "tracker_cmd")
+    poly_goal_sub_ = mav->create_subscription<kr_tracker_msgs::action::PolyTracker::Goal>(
+        "tracker_cmd", 10, std::bind(&MAVManagerServices::poly_goal_cb, this, std::placeholders::_1));
+    have_poly_goal_ = false;
+
+    // Provide a trigger service to accept the latest published PolyTracker goal and forward it to the tracker
+    poly_trigger_srv_ = mav->create_service<std_srvs::srv::Trigger>(
+        "~/poly_tracker", std::bind(&MAVManagerServices::poly_trigger_cb, this, _1, _2));
   }
 
  protected:
@@ -247,5 +284,9 @@ class MAVManagerServices
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr land_srv_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr eland_srv_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr estop_srv_;
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr poly_trigger_srv_;
+  rclcpp::Subscription<kr_tracker_msgs::action::PolyTracker::Goal>::SharedPtr poly_goal_sub_;
+  kr_tracker_msgs::action::PolyTracker::Goal latest_poly_goal_;
+  bool have_poly_goal_;
 };
 }  // namespace kr_mav_manager

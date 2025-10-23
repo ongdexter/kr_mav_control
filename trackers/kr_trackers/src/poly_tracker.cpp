@@ -216,15 +216,15 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr PolyTracker::update(const nav_
       yaw_set_ = false;
       // ROS_INFO(" yaw_set finished ");
       time_last_ = time_now;
-  return std::make_shared<kr_mav_msgs::msg::PositionCommand>(position_cmd_);
+      return std::make_shared<kr_mav_msgs::msg::PositionCommand>(position_cmd_);
     }
 
   double yaw_temp = cur_yaw_ + (time_now - time_last_).seconds() * init_dyaw_;
     double desired_yaw =
         init_final_yaw_ - cur_yaw_ >= 0 ? std::min(yaw_temp, init_final_yaw_) : std::max(yaw_temp, init_final_yaw_);
 
-    yaw_yawdot.first = desired_yaw;
-    yaw_yawdot.second = init_dyaw_;
+        yaw_yawdot.first = desired_yaw;
+        yaw_yawdot.second = init_dyaw_;
 
     init_yaw_time_ += (time_now - time_last_).seconds();
   }
@@ -255,7 +255,7 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr PolyTracker::update(const nav_
           Eigen::Vector3d dir = t_cur + time_forward_ <= current_trajectory_->traj_dur_ ? 
                                                           current_trajectory_->traj_discrete_.getNextPos(t_cur + time_forward_) - pos :
                                                           current_trajectory_->traj_discrete_.getNextPos(current_trajectory_->traj_dur_) - pos;
-        yaw_yawdot = calculate_yaw(dir, (time_now - time_last_).seconds());
+            yaw_yawdot = calculate_yaw(dir, (time_now - time_last_).seconds());
 
           break;
         }
