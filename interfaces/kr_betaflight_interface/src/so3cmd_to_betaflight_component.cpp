@@ -123,7 +123,7 @@ void SO3CmdToBetaflight::odom_callback(const nav_msgs::msg::Odometry::SharedPtr 
   // check if odom is valid
   if (std::isnan(odom_q_.w()) || std::isnan(odom_q_.x()) || std::isnan(odom_q_.y()) || std::isnan(odom_q_.z()))
   {
-    RCLCPP_WARN(this->get_logger(), "Received nan in odom orientation");
+    RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 1000, "Received nan in odom orientation");
     odom_set_ = false;
   }
   else

@@ -247,11 +247,11 @@ void MAVManager::poly_tracker_done_callback(const PolyTrackerGoalHandle::Wrapped
 
 bool MAVManager::sendPolyGoal(const PolyTracker::Goal &goal_msg)
 {
-//   if(!this->motors() || status_ != FLYING)
-//   {
-//     RCLCPP_WARN(this->get_logger(), "The robot must be flying before sending a PolyTracker goal.");
-//     return false;
-//   }
+  if(!this->motors() || status_ != FLYING)
+  {
+    RCLCPP_WARN(this->get_logger(), "The robot must be flying before sending a PolyTracker goal.");
+    return false;
+  }
 
   auto goal = goal_msg;
   auto options = rclcpp_action::Client<PolyTracker>::SendGoalOptions();
