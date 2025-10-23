@@ -328,10 +328,20 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr LineTrackerMinJerk::update(con
     }
 
     cmd->position.x = goal_(0), cmd->position.y = goal_(1), cmd->position.z = goal_(2);
-    cmd->yaw = goal_yaw_;
-    cmd->yaw_dot = 0;
     cmd->velocity.x = 0, cmd->velocity.y = 0, cmd->velocity.z = 0;
     cmd->acceleration.x = 0, cmd->acceleration.y = 0, cmd->acceleration.z = 0;
+
+    // patch to track yaw while at goal
+    const float current_yaw = tf2::getYaw(msg->pose.pose.orientation);
+    const float target_yaw = goal_yaw_;
+    const float yaw_error = std::atan2(std::sin(target_yaw - current_yaw), std::cos(target_yaw - current_yaw));
+    const float max_yaw_rate = 0.3f;
+    const float kp_yaw = 1.0f; // TODO make config
+    
+    float yaw_rate = kp_yaw * yaw_error;
+    yaw_rate = std::max(-max_yaw_rate, std::min(max_yaw_rate, yaw_rate)); // clamp
+    cmd->yaw = target_yaw;
+    cmd->yaw_dot = yaw_rate;
 
     ICs_.set_from_cmd(cmd);
     return cmd;

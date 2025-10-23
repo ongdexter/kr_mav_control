@@ -18,7 +18,7 @@ struct TrajData
 {
   /* info of generated traj */
   double traj_dur_ = 0, traj_yaw_dur_ = 0;
-  ros::Time start_time_;
+  rclcpp::Time start_time_;
   int dim_;
 
 
@@ -42,7 +42,7 @@ class PolyTracker : public kr_trackers_manager::Tracker
   void Deactivate(void);
 
   kr_mav_msgs::msg::PositionCommand::ConstSharedPtr update(const nav_msgs::msg::Odometry::SharedPtr msg);
-  uint8_t status() const;
+  uint8_t status();
 
  private:
   // action callbacks
@@ -158,7 +158,7 @@ double PolyTracker::range(double angle)
   return psi;
 }
 
-kr_mav_msgs::msg::PositionCommand::ConstSharedPtr PolyTracker::update(const nav_msgs::msg::Odometry::SharedPtr &msg)
+kr_mav_msgs::msg::PositionCommand::ConstSharedPtr PolyTracker::update(const nav_msgs::msg::Odometry::SharedPtr msg)
 {
   pos_set_ = true;
 
@@ -175,7 +175,7 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr PolyTracker::update(const nav_
     last_goal_ = cur_pos_;
     time_last_ = time_now;
     last_pos_ = cur_pos_;
-    return kr_mav_msgs::PositionCommand::Ptr();
+  return std::make_shared<kr_mav_msgs::msg::PositionCommand>(position_cmd_);
   }
 
   Eigen::Vector3d pos(Eigen::Vector3d::Zero()), vel(Eigen::Vector3d::Zero()), acc(Eigen::Vector3d::Zero());
@@ -216,10 +216,10 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr PolyTracker::update(const nav_
       yaw_set_ = false;
       // ROS_INFO(" yaw_set finished ");
       time_last_ = time_now;
-      return kr_mav_msgs::PositionCommand::Ptr();
+  return std::make_shared<kr_mav_msgs::msg::PositionCommand>(position_cmd_);
     }
 
-    double yaw_temp = cur_yaw_ + (time_now - time_last_).toSec() * init_dyaw_;
+  double yaw_temp = cur_yaw_ + (time_now - time_last_).seconds() * init_dyaw_;
     double desired_yaw =
         init_final_yaw_ - cur_yaw_ >= 0 ? std::min(yaw_temp, init_final_yaw_) : std::max(yaw_temp, init_final_yaw_);
 
@@ -255,7 +255,7 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr PolyTracker::update(const nav_
           Eigen::Vector3d dir = t_cur + time_forward_ <= current_trajectory_->traj_dur_ ? 
                                                           current_trajectory_->traj_discrete_.getNextPos(t_cur + time_forward_) - pos :
                                                           current_trajectory_->traj_discrete_.getNextPos(current_trajectory_->traj_dur_) - pos;
-          yaw_yawdot = calculate_yaw(dir, (time_now - time_last_).toSec());
+        yaw_yawdot = calculate_yaw(dir, (time_now - time_last_).seconds());
 
           break;
         }
@@ -285,7 +285,7 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr PolyTracker::update(const nav_
             Eigen::Vector3d dir = t_cur + time_forward_ <= current_trajectory_->traj_dur_ ? 
                                                             current_trajectory_->traj_3d_.getPos(t_cur + time_forward_) - pos :
                                                             current_trajectory_->traj_3d_.getPos(current_trajectory_->traj_dur_) - pos;
-            yaw_yawdot = calculate_yaw(dir, (time_now - time_last_).toSec());
+            yaw_yawdot = calculate_yaw(dir, (time_now - time_last_).seconds());
           }
 
           break;
@@ -628,11 +628,15 @@ std::pair<double, double> PolyTracker::calculate_yaw(Eigen::Vector3d &dir, doubl
   return yaw_yawdot;
 }
 
-uint8_t PolyTracker::status() const
+uint8_t PolyTracker::status()
 {
-  return tracker_server_->isActive() ? static_cast<uint8_t>(kr_tracker_msgs::TrackerStatus::ACTIVE) :
-                                       static_cast<uint8_t>(kr_tracker_msgs::TrackerStatus::SUCCEEDED);
+  // prefer checking current goal handle if available (other trackers use this pattern)
+  if(current_goal_handle_ && current_goal_handle_->is_active())
+  {
+    return static_cast<uint8_t>(kr_tracker_msgs::msg::TrackerStatus::ACTIVE);
+  }
+  return static_cast<uint8_t>(kr_tracker_msgs::msg::TrackerStatus::SUCCEEDED);
 }
 
-#include <pluginlib/class_list_macros.h>
-PLUGINLIB_EXPORT_CLASS(PolyTracker, kr_trackers_manager::Tracker)
+#include "pluginlib/class_list_macros.hpp"
+PLUGINLIB_EXPORT_CLASS(PolyTracker, kr_trackers_manager::Tracker);
