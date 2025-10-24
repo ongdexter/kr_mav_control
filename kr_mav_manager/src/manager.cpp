@@ -75,7 +75,8 @@ MAVManager::MAVManager()
       rclcpp_action::create_client<LissajousTracker>(this, "trackers_manager/lissajous_tracker/LissajousTracker");
   lissajous_adder_client_ =
       rclcpp_action::create_client<LissajousAdder>(this, "trackers_manager/lissajous_adder/LissajousAdder");
-  poly_tracker_client_ = rclcpp_action::create_client<PolyTracker>(this, "trackers_manager/poly_tracker/PolyTracker");
+  poly_tracker_client_ = 
+      rclcpp_action::create_client<PolyTracker>(this, "trackers_manager/poly_tracker/PolyTracker");
 
   float server_wait_timout;
   server_wait_timout = this->get_parameter("server_wait_timeout").as_double();

@@ -223,8 +223,8 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr PolyTracker::update(const nav_
     double desired_yaw =
         init_final_yaw_ - cur_yaw_ >= 0 ? std::min(yaw_temp, init_final_yaw_) : std::max(yaw_temp, init_final_yaw_);
 
-        yaw_yawdot.first = desired_yaw;
-        yaw_yawdot.second = init_dyaw_;
+    yaw_yawdot.first = desired_yaw;
+    yaw_yawdot.second = init_dyaw_;
 
     init_yaw_time_ += (time_now - time_last_).seconds();
   }
