@@ -18,7 +18,12 @@
     
     <class type="PolyTracker"
            base_class_type="kr_trackers_manager::Tracker">
-      <description>Action-based poly tracker implementation</description>
+      <description>This is a tracker which follows a polynomial trajectory.</description>
+    </class>
+
+    <class type="VelocityTracker"
+           base_class_type="kr_trackers_manager::Tracker">
+      <description>This is a tracker which follows a velocity command.</description>
     </class>
     
   </library>
