@@ -128,6 +128,8 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr VelocityTracker::update(const 
   const double dt = t_now - last_t_;
   last_t_ = t_now;
 
+  use_position_gains_ = true;
+
   if(use_position_gains_)
   {
     position_cmd_.use_msg_gains_flags = kr_mav_msgs::msg::PositionCommand::USE_MSG_GAINS_NONE;
@@ -147,12 +149,27 @@ kr_mav_msgs::msg::PositionCommand::ConstSharedPtr VelocityTracker::update(const 
 
   position_cmd_.header.stamp = msg->header.stamp;
   position_cmd_.header.frame_id = msg->header.frame_id;
+  
+  auto position_cmd = position_cmd_;
+
+  if (position_cmd.yaw_dot == 0.0f)
+  {
+    const float target_yaw = position_cmd_.yaw;
+    const float yaw_error = std::atan2(std::sin(target_yaw - cur_yaw_), std::cos(target_yaw - cur_yaw_));
+    const float max_yaw_rate = 0.3f;
+    const float kp_yaw = 1.0f; // TODO make config
+
+    float yaw_rate = kp_yaw * yaw_error;
+    yaw_rate = std::max(-max_yaw_rate, std::min(max_yaw_rate, yaw_rate)); // clamp
+    position_cmd.yaw_dot = yaw_rate;
+  }
+
   RCLCPP_INFO_THROTTLE(logger_, *clock_, 1000.0, "VelocityTracker dt: %f", dt);
   RCLCPP_INFO_THROTTLE(logger_, *clock_, 1000.0, "VelocityTracker commanded vel: (%f, %f, %f), yaw_dot=%f",
-    position_cmd_.velocity.x, position_cmd_.velocity.y, position_cmd_.velocity.z, position_cmd_.yaw_dot);
+    position_cmd.velocity.x, position_cmd.velocity.y, position_cmd.velocity.z, position_cmd.yaw_dot);
   RCLCPP_INFO_THROTTLE(logger_, *clock_, 1000.0, "VelocityTracker position command: pos=(%f, %f, %f), yaw=%f",
-    position_cmd_.position.x, position_cmd_.position.y, position_cmd_.position.z, position_cmd_.yaw);
-  return std::make_shared<kr_mav_msgs::msg::PositionCommand>(position_cmd_);
+    position_cmd.position.x, position_cmd.position.y, position_cmd.position.z, position_cmd.yaw);
+  return std::make_shared<kr_mav_msgs::msg::PositionCommand>(position_cmd);
 }
 
 void VelocityTracker::velocity_cmd_cb(const kr_tracker_msgs::msg::VelocityGoal::SharedPtr msg)
