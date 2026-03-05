@@ -484,7 +484,6 @@ bool CrsfBridge::loadParameters()
   node_->declare_parameter("port_name", std::string("/dev/ttyUSB0"));
   node_->declare_parameter("control_command_timeout", 0.5);
   node_->declare_parameter("rc_timeout", 0.5);
-  node_->declare_parameter("mass", 1.0);
   node_->declare_parameter("disable_thrust_mapping", false);
   node_->declare_parameter("max_roll_rate", 400.0);
   node_->declare_parameter("max_pitch_rate", 400.0);
@@ -517,10 +516,6 @@ bool CrsfBridge::loadParameters()
   }
   if (!node_->get_parameter("rc_timeout", rc_timeout_)) {
     RCLCPP_ERROR(logger_, "Failed to load parameter: rc_timeout");
-    all_params_loaded = false;
-  }
-  if (!node_->get_parameter("mass", mass_)) {
-    RCLCPP_ERROR(logger_, "Failed to load parameter: mass");
     all_params_loaded = false;
   }
   if (!node_->get_parameter("disable_thrust_mapping", disable_thrust_mapping_)) {

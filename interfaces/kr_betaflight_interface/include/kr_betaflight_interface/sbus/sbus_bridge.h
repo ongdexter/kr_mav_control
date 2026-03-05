@@ -112,8 +112,6 @@ class SBusBridge : public ProtocolBridgeBase
   double control_command_timeout_;
   double rc_timeout_;
 
-  double mass_;
-
   bool disable_thrust_mapping_;
 
   double max_roll_rate_;

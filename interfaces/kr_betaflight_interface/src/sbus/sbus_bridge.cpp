@@ -591,7 +591,6 @@ bool SBusBridge::loadParameters()
   node_->declare_parameter("port_name", std::string("/dev/ttyUSB0"));
   node_->declare_parameter("control_command_timeout", 0.5);
   node_->declare_parameter("rc_timeout", 0.5);
-  node_->declare_parameter("mass", 1.0);
   node_->declare_parameter("disable_thrust_mapping", false);
   node_->declare_parameter("max_roll_rate", 400.0);
   node_->declare_parameter("max_pitch_rate", 400.0);
@@ -614,7 +613,7 @@ bool SBusBridge::loadParameters()
   // Get parameters
   if(!node_->get_parameter("port_name", port_name_) ||
      !node_->get_parameter("control_command_timeout", control_command_timeout_) ||
-     !node_->get_parameter("rc_timeout", rc_timeout_) || !node_->get_parameter("mass", mass_) ||
+     !node_->get_parameter("rc_timeout", rc_timeout_) ||
      !node_->get_parameter("disable_thrust_mapping", disable_thrust_mapping_) ||
      !node_->get_parameter("max_roll_rate", max_roll_rate_) ||
      !node_->get_parameter("max_pitch_rate", max_pitch_rate_) || !node_->get_parameter("max_yaw_rate", max_yaw_rate_) ||
