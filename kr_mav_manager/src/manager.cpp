@@ -53,7 +53,7 @@ MAVManager::MAVManager()
   this->declare_parameter("mass", rclcpp::PARAMETER_DOUBLE);
   this->declare_parameter("odom_timeout", 0.1f);
   this->declare_parameter("takeoff_height", 0.5);
-  this->declare_parameter("robot", "neurofly1");
+  this->declare_parameter("robot", "quadrotor");
 
   std::string robot_name = this->get_parameter("robot").as_string();
   RCLCPP_INFO(this->get_logger(), robot_name.c_str());
